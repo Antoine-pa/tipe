@@ -28,15 +28,3 @@ interpolation:
 ```
 ./shadertoy --texture 0no:nyancat.png nyan.glsl
 ```
-
-
-### Getting shaders
-
-You can download shaders from shadertoy.com by using the "getshader.py"
-script, which takes either the ID or the URL of the target shader
-as commandline argument. It will save the shader code under the
-given name of the shader into the current working directory,
-as well as the full json object as a temporary file /tmp/current-shader.json.
-```
-./getshader.py MdX3zr
-```
