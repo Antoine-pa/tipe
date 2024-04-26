@@ -15,6 +15,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <getopt.h>
 
@@ -26,59 +27,84 @@
 
 #include <gdk-pixbuf/gdk-pixbuf.h>
 
-struct Sphere_s {
+struct Object_s {
+  int id; //0 : sphere | 1 : torus | 2 : cylinder | 3 : box | 4 : plan
   float* color;
   float* pos;
-  float size;
+  float* rot; //normale for plans
+  float* size;
+  float radius;
+  float thickness; //thickness for torus and rounding for cylinder and box
 };
 
-typedef struct Sphere_s Sphere_t;
-typedef Sphere_t* Sphere_p;
-typedef struct Spheres_s Spheres_t;
-typedef Spheres_t* Spheres_p;
-
+typedef struct Object_s Object_t;
 
 struct Scene_s {
-  Sphere_p* spheres;
-  int nb_spheres;
+  Object_t** obj;
+  int nb;
 };
 
 typedef struct Scene_s Scene_t;
-typedef Scene_t* Scene_p;
 
-Sphere_p init_sphere(float r, float g, float b, float x, float y, float z, float size) {
-  Sphere_p s = malloc(sizeof(Sphere_t));
-  float* col = malloc(sizeof(float)*3);
-  col[0] = r;
-  col[1] = g;
-  col[2] = b;
-  float* p = malloc(sizeof(float)*3);
-  p[0] = x;
-  p[1] = y;
-  p[2] = z;
-  s -> color = col;
-  s -> pos = p;
-  s -> size = size;
-  return s;
+Object_t* init_object(int id,
+                      float r, float g, float b,
+                      float x, float y, float z,
+                      float alpha, float beta, float gamma,
+                      float size_x, float size_y, float size_z,
+                      float radius,
+                      float thickness) {
+
+  Object_t* o = malloc(sizeof(Object_t));
+  
+  o->id = id;
+
+  o->color = malloc(sizeof(float)*3);
+  o->color[0] = r;
+  o->color[1] = g;
+  o->color[2] = b;
+
+  o->pos = malloc(sizeof(float)*3);
+  o->pos[0] = x;
+  o->pos[1] = y;
+  o->pos[2] = z;
+
+  o->rot = malloc(sizeof(float)*3);
+  o->rot[0] = alpha;
+  o->rot[1] = beta;
+  o->rot[2] = gamma;
+
+  o->size = malloc(sizeof(float)*3);
+  o->size[0] = size_x;
+  o->size[1] = size_y;
+  o->size[2] = size_z;
+
+  o->radius = radius;
+
+  o->thickness = thickness;
+  return o;
 }
 
-void init_spheres(Scene_p scene) {
-  Sphere_p* spheres = malloc(sizeof(Sphere_p*)*2);
-  spheres[0] = init_sphere(0.06, 0.04, 1.0, 0.0, 0.0, 0.0, 0.5);
-  spheres[1] = init_sphere(0.3, 0.04, 0.06, 0.1, 0.45, -0.1, 0.2);
-  scene->spheres = spheres;
-  scene->nb_spheres = 2;
-}
-
-Scene_p init_scene() {
-  Scene_p scene = malloc(sizeof(Scene_t));
-  init_spheres(scene);
+Scene_t* init_scene() {
+  int nb_objects = 6;
+  Scene_t* scene = malloc(sizeof(Scene_t));
+  Object_t** objs = malloc(sizeof(Object_t*)*nb_objects);
+  objs[0] = init_object(0,   0.06, 0.04, 1.0,   0.0, 0.0, 0.0,    0.0, 0.0, 0.0,     0.0, 0.0, 0.0,   0.5,  0.0);
+  objs[1] = init_object(0,   0.3, 0.04, 0.06,   0.1, 0.45, -0.1,  0.0, 0.0, 0.0,     0.0, 0.0, 0.0,   0.2,  0.0);
+  objs[2] = init_object(1,   1.0, 0.4, 0.0,     0.0, 0.2, 0.1,    0.0, 0.37, 0.93,   0.0, 0.0, 0.0,   0.8,  0.1);
+  objs[3] = init_object(2,   1.0, 0.2, 0.1,     0.6, 0.3, 0.4,    0.1, 0.4, 0.3,     0.12, 0.4, 0.0,  0.0,  0.3);
+  objs[4] = init_object(3,   0.96, 0.41, 0.6,   -0.65, 0.5, 0.0,  0.0, 0.5, 0.2,     0.2, 0.2, 0.2,   0.0,  0.05);
+  objs[5] = init_object(4,   0.25, 0.45, 0.5,   0.0, 0.0, 0.0,    0.0, 1.0, 0.0,     0.0, 0.0, 0.0,   0.0,  0.0);
+  scene->obj = objs;
+  scene->nb = nb_objects;
   return scene;
 }
 
-void free_scene(Scene_p scene) {
-  for(int i = 0; i<scene->nb_spheres; i++) {
-    free(scene->spheres[i]);
+void free_scene(Scene_t* scene) {
+  for(int i = 0; i<scene->nb; i++) {
+    free(scene->obj[i]->color);
+    free(scene->obj[i]->pos);
+    free(scene->obj[i]->rot);
+    free(scene->obj[i]->size);
   }
   free(scene);
 }
@@ -184,12 +210,47 @@ redisplay (int value)
   glutTimerFunc (value, redisplay, value);
 }
 
+void load_scene(Scene_t* scene) {
+  GLint uindex;
+  char address[1000];
+  
+  for(int i = 0; i<scene->nb; i++) {
+    sprintf(address, "iObjects[%d].id", i);
+    uindex = glGetUniformLocation (prog, address);
+    glUniform1i (uindex, (scene->obj[i])->id);
+
+    sprintf(address, "iObjects[%d].color", i);
+    uindex = glGetUniformLocation (prog, address);
+    glUniform3f (uindex, (scene->obj[i])->color[0], (scene->obj[i])->color[1], (scene->obj[i])->color[2]);
+
+    sprintf(address, "iObjects[%d].pos", i);
+    uindex = glGetUniformLocation (prog, address);
+    glUniform3f (uindex,  (scene->obj[i])->pos[0], (scene->obj[i])->pos[1], (scene->obj[i])->pos[2]);
+
+    sprintf(address, "iObjects[%d].rot", i);
+    uindex = glGetUniformLocation (prog, address);
+    glUniform3f (uindex,  (scene->obj[i])->rot[0], (scene->obj[i])->rot[1], (scene->obj[i])->rot[2]);
+
+    sprintf(address, "iObjects[%d].size", i);
+    uindex = glGetUniformLocation (prog, address);
+    glUniform3f (uindex, (scene->obj[i])->size[0], (scene->obj[i])->size[1], (scene->obj[i])->size[2]);
+
+    sprintf(address, "iObjects[%d].radius", i);
+    uindex = glGetUniformLocation (prog, address);
+    glUniform1f (uindex, (scene->obj[i])->radius);
+
+    sprintf(address, "iObjects[%d].thickness", i);
+    uindex = glGetUniformLocation (prog, address);
+    glUniform1f (uindex, (scene->obj[i])->thickness);
+  }
+}
+
 
 void
 display (void)
 {
   static int frames, last_time;
-  Scene_p scene = init_scene();
+  Scene_t* scene = init_scene();
   int x0, y0, width, height, ticks;
   GLint uindex;
   struct timespec ts;
@@ -213,16 +274,8 @@ display (void)
       fprintf (stderr, "FPS: %.2f\n", 1000.0 * frames / (ticks - last_time));
       frames = 0;
     }
-  uindex = glGetUniformLocation (prog, "balls[0].color");
-  glUniform3f (uindex, (scene->spheres[0])->color[0], (scene->spheres[0])->color[1], (scene->spheres[0])->color[2]);
-  uindex = glGetUniformLocation (prog, "balls[0].pos");
-  glUniform3f (uindex,  (scene->spheres[0])->pos[0], (scene->spheres[0])->pos[1], (scene->spheres[0])->pos[2]);
-  uindex = glGetUniformLocation (prog, "balls[0].size");
-  glUniform1f (uindex, ((scene->spheres[0])->size));
 
-  glUniform3fv (prog, glGetUniformLocation (prog, "balls[1].color"), (scene->spheres[1])->color);
-  glUniform3fv (prog, glGetUniformLocation (prog, "balls[1].pos"), (scene->spheres[1])->pos);
-  glUniform1fv (prog, glGetUniformLocation (prog, "balls[1].size"), &((scene->spheres[1])->size));
+  load_scene(scene);
 
   uindex = glGetUniformLocation (prog, "iGlobalTime");
   if (uindex >= 0)

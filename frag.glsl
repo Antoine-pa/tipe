@@ -1,20 +1,25 @@
 struct Object {
+    int id; //0 : sphere | 1 : torus | 2 : cylender | 3 : box | 4 : plan
     vec3 color;
     vec3 pos;
-    float size;
+    vec3 rot; //normale for plans
+    vec3 size;
+    float radius;
+    float thickness; //thickness for torus and rounding for cylender and box
 };
 
+const int nbObjects = 6;
 
-uniform vec3       iResolution;           // viewport resolution (in pixels)
-uniform float      iGlobalTime;           // shader playback time (in seconds)
-uniform float      iChannelTime[4];       // channel playback time (in seconds)
-uniform vec3       iChannelResolution[4]; // channel resolution (in pixels)
-uniform vec4       iMouse;                // mouse pixel coords. xy: current (if MLB down), zw: click
-uniform sampler2D  iChannel0;             // input channel. XX = 2D/Cube
-uniform sampler2D  iChannel1;             // input channel. XX = 2D/Cube
-uniform vec4       iDate;                 // (year, month, day, time in secs)
-uniform float      iSampleRate;           // sound sample rate (i.e., 44100)
-uniform Object[2]  balls;
+uniform vec3                iResolution;           // viewport resolution (in pixels)
+uniform float               iGlobalTime;           // shader playback time (in seconds)
+uniform float               iChannelTime[4];       // channel playback time (in seconds)
+uniform vec3                iChannelResolution[4]; // channel resolution (in pixels)
+uniform vec4                iMouse;                // mouse pixel coords. xy: current (if MLB down), zw: click
+uniform sampler2D           iChannel0;             // input channel. XX = 2D/Cube
+uniform sampler2D           iChannel1;             // input channel. XX = 2D/Cube
+uniform vec4                iDate;                 // (year, month, day, time in secs)
+uniform float               iSampleRate;           // sound sample rate (i.e., 44100)
+uniform Object[nbObjects]   iObjects;
 
 
 //raymarcher
@@ -34,43 +39,6 @@ const float RADIUS_MOUSE = 2.0;
 //other data
 const float PI = 3.141592;
 const float ZOOM = 1.0;
-
-//plan
-const vec3 COLOR_P = vec3(0.25, 0.45, 0.5);
-const vec3 POS_P = vec3(0.0);
-const vec3 NORMALE_P = vec3(0, 1.0, 0);
-
-//blue ball
-const vec3 COLOR_S1 = vec3(0.06, 0.04, 1);
-const vec3 POS_S1 = vec3(0.0);
-const float SIZE_S1 = 0.5;
-
-//red ball
-const vec3 COLOR_S2 = vec3(0.3, 0.04, 0.06);
-const vec3 POS_S2 = vec3(0.1, 0.45, -0.1);
-const float SIZE_S2 = 0.2;
-
-//yellow torus
-const vec3 COLOR_T = vec3(1.0, 0.4, 0.0);
-const vec3 POS_T = vec3(0.0, 0.2, 0.1);
-const vec3 ROT_T = vec3(0.0, 0.37139067635, 0.92847669088);
-const float RAY_T = 0.8;
-const float THICKNESS_T = 0.1;
-
-//orange cylinder
-const vec3 COLOR_C = vec3(1.0, 0.2, 0.1);
-const vec3 POS_C = vec3(0.6, 0.3, 0.4);
-const vec3 ROT_C = vec3(0.1, 0.4, 0.3);
-const vec2 SIZE_C = vec2(0.12, 0.4);
-const float SMOOTH_C = 0.30;
-
-//pink box
-const vec3 COLOR_B = vec3(0.96, 0.41, 0.6);
-const vec3 POS_B = vec3(-0.65, 0.5, 0.0);
-const vec3 ROT_B = vec3(0.0, 0.5, 0.2);
-const vec3 SIZE_B = vec3(0.2);
-const float SMOOTH_B = 0.05;
-
 
 //fonction de rotation
 vec3 rotateX(vec3 p, float a){
@@ -147,28 +115,31 @@ vec4 minDist(vec4 a, vec4 b){
     return a.a < b.a ? a : b;
 }
 
+vec4 colDist(vec3 p, Object obj) {
+    if(obj.id == 0) {
+        return Sphere(p - obj.pos, obj.radius, obj.color);
+    }
+    if(obj.id == 1) {
+        return Torus(p - obj.pos, obj.rot, obj.radius, obj.thickness, obj.color);
+    }
+    if(obj.id == 2) {
+        return Cylender(p - obj.pos, obj.rot, obj.size.xy, obj.thickness, obj.color);
+    }
+    if(obj.id == 3) {
+        return Box(p - obj.pos, obj.rot, obj.size, obj.thickness, obj.color);
+    }
+    else {
+        return Plane(p - obj.pos, obj.rot, obj.color);
+    }
+}
 
 //calculate the min distance object
 vec4 scene(vec3 p){
-    vec4 P = Plane(p - POS_P, NORMALE_P, COLOR_P);
-    vec4 obj = P;
-    
-    //vec4 S1 = Sphere(p - POS_S1, SIZE_S1, COLOR_S1);
-    vec4 S1 = Sphere(p - balls[0].pos, balls[0].size, balls[0].color);
-    vec4 S2 = Sphere(p - POS_S2, SIZE_S2, COLOR_S2);
-    //S1 = substract(S1, S2);
-    obj = minDist(obj, S2);
-    obj = minDist(obj, S1);
-    
-    vec4 T = Torus(p - POS_T, ROT_T, RAY_T, THICKNESS_T, COLOR_T);
-    obj = minDist(obj, T);
-    
-    vec4 C = Cylender(p - POS_C, ROT_C, SIZE_C, SMOOTH_C, COLOR_C);
-    obj = minDist(obj, C);
-    
-    vec4 B = Box(p - POS_B, ROT_B, SIZE_B, SMOOTH_B, COLOR_B);
-    obj = minDist(obj, B);
-    
+    vec4 obj = colDist(p, iObjects[0]);
+    for(int i = 1; i<nbObjects; i++) {
+        vec4 o = colDist(p, iObjects[i]);
+        obj = minDist(obj, o);
+    }
     return obj;
 }
 
