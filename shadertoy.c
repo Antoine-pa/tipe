@@ -1,43 +1,26 @@
-/* Standalone Shadertoy
- * Copyright (C) 2014 Simon Budig <simon@budig.de>
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <getopt.h>
 
-//#include <sys/types.h>
-
 #include <GL/glew.h>
-#include <GL/glut.h>
-#include <GL/freeglut_ext.h>
+#include <GLFW/glfw3.h>
 
 #include <gdk-pixbuf/gdk-pixbuf.h>
 
 struct Object_s {
   int id; //0 : sphere | 1 : torus | 2 : cylinder | 3 : box | 4 : plan
-  float* color;
-  float* pos;
-  float* rot; //normale for plans
-  float* size;
+  float color[4];
+  float pos[4];
+  float rot[4]; //normale for plans
+  float size[4];
   float radius;
   float thickness; //thickness for torus and rounding for cylinder and box
 };
 
 typedef struct Object_s Object_t;
+
+const int obj_size = 96;
 
 struct Scene_s {
   Object_t** obj;
@@ -58,30 +41,38 @@ Object_t* init_object(int id,
   
   o->id = id;
 
-  o->color = malloc(sizeof(float)*3);
   o->color[0] = r;
   o->color[1] = g;
   o->color[2] = b;
+  o->color[3] = 2.0;
 
-  o->pos = malloc(sizeof(float)*3);
   o->pos[0] = x;
   o->pos[1] = y;
   o->pos[2] = z;
+  o->pos[3] = 0.0;
 
-  o->rot = malloc(sizeof(float)*3);
   o->rot[0] = alpha;
   o->rot[1] = beta;
   o->rot[2] = gamma;
+  o->rot[3] = 0.0;
 
-  o->size = malloc(sizeof(float)*3);
   o->size[0] = size_x;
   o->size[1] = size_y;
   o->size[2] = size_z;
+  o->size[3] = 0.0;
 
   o->radius = radius;
 
   o->thickness = thickness;
   return o;
+}
+
+void print_object(Object_t* o) {
+  printf("type : %d\ncolor : %f, %f, %f\n", o->id, o->color[0], o->color[1], o->color[2]);
+  printf("position : %f, %f, %f\n", o->pos[0], o->pos[1], o->pos[2]);
+  printf("rotation : %f, %f, %f\n", o->rot[0], o->rot[1], o->rot[2]);
+  printf("size : %f, %f, %f\n", o->size[0], o->size[1], o->size[2]);
+  printf("radius : %f\nthickness : %f\n=======\n", o->radius, o->thickness);
 }
 
 Scene_t* init_scene() {
@@ -101,168 +92,113 @@ Scene_t* init_scene() {
 
 void free_scene(Scene_t* scene) {
   for(int i = 0; i<scene->nb; i++) {
-    free(scene->obj[i]->color);
-    free(scene->obj[i]->pos);
-    free(scene->obj[i]->rot);
-    free(scene->obj[i]->size);
+    free(scene->obj[i]);
   }
+  free(scene->obj);
   free(scene);
 }
 
-/* width, height, x0, y0 (top left) */
 static double geometry[4] = { 0, };
-
-/* x, y, x_press, y_press  (in target coords) */
 static double mouse[4] = { 0, };
 
 static GLint prog = 0;
 static GLenum tex[4];
+static GLuint ubo = 0;
+static Scene_t* scene = NULL;
 
-void
-mouse_press_handler (int button, int state, int x, int y)
-{
-  char msg[1000];
-  int x0, y0, height;
+void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
+    double xpos, ypos;
+    int x0, y0, width, height;
 
-  if (button != GLUT_LEFT_BUTTON)
-    return;
+    if (button != GLFW_MOUSE_BUTTON_LEFT)
+        return;
 
-  if (state == GLUT_DOWN)
-    {
-      x0     = glutGet (GLUT_WINDOW_X);
-      y0     = glutGet (GLUT_WINDOW_Y);
-      height = glutGet (GLUT_WINDOW_HEIGHT);
+    if (action == GLFW_PRESS) {
+        glfwGetWindowPos(window, &x0, &y0);
+        glfwGetWindowSize(window, &width, &height);
+        glfwGetCursorPos(window, &xpos, &ypos);
 
-      if (geometry[0] > 0.1 && geometry[1] > 0.1)
-        {
-          mouse[2] = mouse[0] =               geometry[2] + x0 + x;
-          mouse[3] = mouse[1] = geometry[1] - geometry[3] - y0 - y;
+        if (geometry[0] > 0.1 && geometry[1] > 0.1) {
+            mouse[2] = mouse[0] = geometry[2] + x0 + xpos;
+            mouse[3] = mouse[1] = geometry[1] - geometry[3] - y0 - ypos;
+        } else {
+            mouse[2] = mouse[0] = xpos;
+            mouse[3] = mouse[1] = height - ypos;
         }
-      else
-        {
-          mouse[2] = mouse[0] = x;
-          mouse[3] = mouse[1] = height - y;
-        }
-    }
-  else
-    {
-      mouse[2] = -1;
-      mouse[3] = -1;
-    }
-
-  snprintf (msg, sizeof (msg), "iMouse:%.0f,%.0f,%.0f,%.0f",
-            mouse[0], mouse[1], mouse[2], mouse[3]);
-}
-
-
-void
-mouse_move_handler (int x, int y)
-{
-  char msg[1000];
-  int x0, y0, height;
-
-      x0     = glutGet (GLUT_WINDOW_X);
-      y0     = glutGet (GLUT_WINDOW_Y);
-      height = glutGet (GLUT_WINDOW_HEIGHT);
-
-      if (geometry[0] > 0.1 && geometry[1] > 0.1)
-        {
-          mouse[0] =               geometry[2] + x0 + x;
-          mouse[1] = geometry[1] - geometry[3] - y0 - y;
-        }
-      else
-        {
-          mouse[0] = x;
-          mouse[1] = height - y;
-        }
-
-  snprintf (msg, sizeof (msg), "iMouse:%.0f,%.0f,%.0f,%.0f",
-            mouse[0], mouse[1], mouse[2], mouse[3]);
-}
-
-
-void
-keyboard_handler (unsigned char key, int x, int y)
-{
-  switch (key)
-    {
-      case '\x1b':  /* Escape */
-      case 'q':
-      case 'Q':
-        glutLeaveMainLoop ();
-        break;
-
-      case 'f': /* fullscreen */
-      case 'F':
-        glutFullScreenToggle ();
-        break;
-
-      default:
-        break;
+    } else {
+        mouse[2] = -1;
+        mouse[3] = -1;
     }
 }
 
+void cursor_position_callback(GLFWwindow* window, double xpos, double ypos) {
+    int x0, y0, height;
+    char msg[1000];
 
-void
-redisplay (int value)
-{
-  glutPostRedisplay ();
-  glutTimerFunc (value, redisplay, value);
+    glfwGetWindowPos(window, &x0, &y0);
+    glfwGetWindowSize(window, NULL, &height);
+
+    if (geometry[0] > 0.1 && geometry[1] > 0.1) {
+        mouse[0] = geometry[2] + x0 + xpos;
+        mouse[1] = geometry[1] - geometry[3] - y0 - ypos;
+    } else {
+        mouse[0] = xpos;
+        mouse[1] = height - ypos;
+    }
+
+    snprintf(msg, sizeof(msg), "iMouse:%.0f,%.0f,%.0f,%.0f", mouse[0], mouse[1], mouse[2], mouse[3]);
+}
+
+
+void keyboard_handler(GLFWwindow* window, int key, int scancode, int action, int mods) {
+    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
+        glfwSetWindowShouldClose(window, GLFW_TRUE);
+    } else if ((key == GLFW_KEY_Q || key == GLFW_KEY_ESCAPE) && action == GLFW_PRESS && (mods & GLFW_MOD_CONTROL)) {
+        glfwSetWindowShouldClose(window, GLFW_TRUE);
+    } else if ((key == GLFW_KEY_F || key == GLFW_KEY_ENTER) && action == GLFW_PRESS && (mods & GLFW_MOD_ALT)) {
+        if (glfwGetWindowMonitor(window) == NULL)
+            glfwSetWindowMonitor(window, glfwGetPrimaryMonitor(), 0, 0, 800, 600, GLFW_DONT_CARE);
+        else
+            glfwSetWindowMonitor(window, NULL, 0, 0, 800, 600, GLFW_DONT_CARE);
+    }
 }
 
 void load_scene(Scene_t* scene) {
-  GLint uindex;
-  char address[1000];
-  
-  for(int i = 0; i<scene->nb; i++) {
-    sprintf(address, "iObjects[%d].id", i);
-    uindex = glGetUniformLocation (prog, address);
-    glUniform1i (uindex, (scene->obj[i])->id);
-
-    sprintf(address, "iObjects[%d].color", i);
-    uindex = glGetUniformLocation (prog, address);
-    glUniform3f (uindex, (scene->obj[i])->color[0], (scene->obj[i])->color[1], (scene->obj[i])->color[2]);
-
-    sprintf(address, "iObjects[%d].pos", i);
-    uindex = glGetUniformLocation (prog, address);
-    glUniform3f (uindex,  (scene->obj[i])->pos[0], (scene->obj[i])->pos[1], (scene->obj[i])->pos[2]);
-
-    sprintf(address, "iObjects[%d].rot", i);
-    uindex = glGetUniformLocation (prog, address);
-    glUniform3f (uindex,  (scene->obj[i])->rot[0], (scene->obj[i])->rot[1], (scene->obj[i])->rot[2]);
-
-    sprintf(address, "iObjects[%d].size", i);
-    uindex = glGetUniformLocation (prog, address);
-    glUniform3f (uindex, (scene->obj[i])->size[0], (scene->obj[i])->size[1], (scene->obj[i])->size[2]);
-
-    sprintf(address, "iObjects[%d].radius", i);
-    uindex = glGetUniformLocation (prog, address);
-    glUniform1f (uindex, (scene->obj[i])->radius);
-
-    sprintf(address, "iObjects[%d].thickness", i);
-    uindex = glGetUniformLocation (prog, address);
-    glUniform1f (uindex, (scene->obj[i])->thickness);
-  }
+    glBindBuffer(GL_UNIFORM_BUFFER, ubo);
+    GLvoid* bufferData = glMapBuffer(GL_UNIFORM_BUFFER, GL_WRITE_ONLY);
+    if(bufferData) {
+        for(int i = 0; i < scene->nb; i++) {
+            Object_t* obj = scene->obj[i];
+            memcpy(bufferData + obj_size * i, &obj->id, sizeof(int));
+            memcpy(bufferData + obj_size * i + 16, obj->color, sizeof(float) * 4);
+            memcpy(bufferData + obj_size * i + 32, obj->pos, sizeof(float) * 4);
+            memcpy(bufferData + obj_size * i + 48, obj->rot, sizeof(float) * 4);
+            memcpy(bufferData + obj_size * i + 64, obj->size, sizeof(float) * 4);
+            memcpy(bufferData + obj_size * i + 80, &obj->radius, sizeof(float));
+            memcpy(bufferData + obj_size * i + 84, &obj->thickness, sizeof(float));
+        }
+        glUnmapBuffer(GL_UNIFORM_BUFFER);
+    } else {
+        fprintf(stderr, "Failed to map uniform buffer.\n");
+    }
+    glBindBuffer(GL_UNIFORM_BUFFER, 0);
 }
 
 
-void
-display (void)
-{
+void display(GLFWwindow* window) {
+  
   static int frames, last_time;
-  Scene_t* scene = init_scene();
   int x0, y0, width, height, ticks;
   GLint uindex;
+
+  glUseProgram(prog);
+  
+  glfwGetWindowPos(window, &x0, &y0);
+  glfwGetWindowSize(window, &width, &height);
+
   struct timespec ts;
-
-  glUseProgram (prog);
-
-  x0     = glutGet (GLUT_WINDOW_X);
-  y0     = glutGet (GLUT_WINDOW_Y);
-  width  = glutGet (GLUT_WINDOW_WIDTH);
-  height = glutGet (GLUT_WINDOW_HEIGHT);
-  clock_gettime (CLOCK_MONOTONIC_RAW, &ts);
-  ticks  = ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+  clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
+  ticks = ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 
   if (frames == 0)
     last_time = ticks;
@@ -274,8 +210,6 @@ display (void)
       fprintf (stderr, "FPS: %.2f\n", 1000.0 * frames / (ticks - last_time));
       frames = 0;
     }
-
-  load_scene(scene);
 
   uindex = glGetUniformLocation (prog, "iGlobalTime");
   if (uindex >= 0)
@@ -358,116 +292,12 @@ display (void)
   uindex = glGetUniformLocation (prog, "led_color");
   if (uindex >= 0)
     glUniform3f (uindex, 0.5, 0.3, 0.8);
-
-  glClear (GL_COLOR_BUFFER_BIT);
-  glRectf (-1.0, -1.0, 1.0, 1.0);
-
-  glutSwapBuffers ();
-
-  free_scene(scene);
+  
 }
 
 
-int
-load_texture (char    *filename,
-              GLenum   type,
-              GLenum  *tex_id,
-              char     nearest,
-              char     repeat)
-{
-  GdkPixbuf *pixbuf;
-  int width, height;
-  uint8_t *data;
-  GLfloat *tex_data;
-  int rowstride;
-  int cpp, bps;
-  int x, y, c;
-
-  pixbuf = gdk_pixbuf_new_from_file (filename, NULL);
-
-  width = gdk_pixbuf_get_width (pixbuf);
-  height = gdk_pixbuf_get_height (pixbuf);
-
-  data = gdk_pixbuf_get_pixels (pixbuf);
-  rowstride = gdk_pixbuf_get_rowstride (pixbuf);
-  bps = gdk_pixbuf_get_bits_per_sample (pixbuf);
-  cpp = gdk_pixbuf_get_n_channels (pixbuf);
-
-  if (bps != 8 && bps != 16)
-    {
-      fprintf (stderr, "unexpected bits per sample: %d\n", bps);
-      return 0;
-    }
-
-
-  if (cpp != 3 && cpp != 4)
-    {
-      fprintf (stderr, "unexpected n_channels: %d\n", cpp);
-      return 0;
-    }
-
-  tex_data = malloc (width * height * cpp * sizeof (GLfloat));
-  for (y = 0; y < height; y++)
-    {
-      uint8_t  *cur_row8  = (uint8_t *)  (data + y * rowstride);
-      uint16_t *cur_row16 = (uint16_t *) (data + y * rowstride);
-
-      for (x = 0; x < width; x++)
-        {
-          for (c = 0; c < cpp; c++)
-            {
-              if (bps == 8)
-                tex_data[(y * width + x) * cpp + c] = ((GLfloat) cur_row8[x * cpp + c]) / 255.0;
-              else
-                tex_data[(y * width + x) * cpp + c] = ((GLfloat) cur_row16[x * cpp + c]) / 65535.0;
-            }
-        }
-    }
-
-  glGenTextures (1, tex_id);
-  glBindTexture (type, *tex_id);
-  glTexImage2D (type, 0, GL_RGBA,
-                width, height,
-                0, cpp == 3 ? GL_RGB : GL_RGBA,
-                GL_FLOAT,
-                tex_data);
-  if (nearest)
-    {
-      glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-      glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    }
-  else
-    {
-      glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-      glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-      glGenerateMipmap (GL_TEXTURE_2D);
-    }
-
-  if (repeat)
-    {
-      glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-      glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    }
-  else
-    {
-      glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
-      glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
-    }
-
-  free (tex_data);
-  g_object_unref (pixbuf);
-
-  fprintf (stderr, "texture: %s, %dx%d, %d (%d) --> id %d\n",
-           filename, width, height, cpp, bps, *tex_id);
-
-  return 1;
-}
-
-
-GLint
-compile_shader (const GLenum  shader_type,
-                const GLchar *shader_source)
-{
+GLint compile_shader (const GLenum  shader_type,
+                      const GLchar *shader_source) {
   GLuint shader = glCreateShader (shader_type);
   GLint status = GL_FALSE;
   GLint loglen;
@@ -490,10 +320,8 @@ compile_shader (const GLenum  shader_type,
 }
 
 
-GLint
-link_program (const GLchar *shader_source)
-{
-  GLint frag, program;
+GLint link_program(const GLchar* vert_code, const GLchar* frag_code) {
+  GLint frag, vert, program;
   GLint status = GL_FALSE;
   GLint loglen, n_uniforms;
   GLchar *error_message;
@@ -502,15 +330,16 @@ link_program (const GLchar *shader_source)
   GLchar name[80];
   GLsizei namelen;
 
-  frag = compile_shader (GL_FRAGMENT_SHADER, shader_source);
-  if (frag < 0)
+  vert = compile_shader(GL_VERTEX_SHADER, vert_code);
+  frag = compile_shader(GL_FRAGMENT_SHADER, frag_code);
+  if (frag < 0 || vert < 0)
     return -1;
 
   program = glCreateProgram ();
 
-  glAttachShader (program, frag);
-  glLinkProgram (program);
-  // glDeleteShader (frag);
+  glAttachShader(program, vert);
+  glAttachShader(program, frag);
+  glLinkProgram(program);
 
   glGetProgramiv (program, GL_LINK_STATUS, &status);
   if (status != GL_TRUE)
@@ -540,17 +369,16 @@ link_program (const GLchar *shader_source)
   return program;
 }
 
-void
-init_glew (void)
-{
+void init_glew (void) {
   GLenum status;
-
+  
   status = glewInit ();
 
   if (status != GLEW_OK)
     {
       fprintf (stderr, "glewInit error: %s\n", glewGetErrorString (status));
-      exit (-1);
+      glfwTerminate();
+      exit(-1);
     }
 
   fprintf (stderr,
@@ -560,17 +388,15 @@ init_glew (void)
            glGetString (GL_RENDERER), glewGetString (GLEW_VERSION),
            glGetString (GL_SHADING_LANGUAGE_VERSION));
 
-  if (!GLEW_VERSION_2_1)
-    {
-      fprintf (stderr, "OpenGL 2.1 or better required for GLSL support.");
-      exit (-1);
+  if (!GLEW_VERSION_3_2) {
+        fprintf(stderr, "OpenGL 3.2 n'est pas disponible.\n");
+        glfwTerminate();
+        exit(-1);
     }
 }
 
 
-char *
-load_file (char *filename)
-{
+char * load_file(char *filename) {
   FILE *f;
   int size;
   char *data;
@@ -600,131 +426,103 @@ load_file (char *filename)
   return data;
 }
 
-
-int main (int argc, char *argv[]) {
-  char *frag_code = NULL;
-  glutInit (&argc, argv);
-
-  static struct option long_options[] = {
-      { "texture",  required_argument, NULL,  't' },
-      { "geometry", required_argument, NULL,  'g' },
-      { "help",     no_argument, NULL,        'h' },
-      { 0,          0,                 NULL,  0   }
-  };
-
-  glutInitWindowSize (800, 600);
-  glutInitDisplayMode (GLUT_RGBA | GLUT_DOUBLE);
-  glutCreateWindow ("Shadertoy");
-
-  init_glew ();
-
-  /* option parsing */
-  while (1)
-    {
-      int c, slot, i;
-      char nearest, repeat;
-
-      c = getopt_long (argc, argv, ":t:g:?", long_options, NULL);
-      if (c == -1)
-        break;
-
-      switch (c)
-        {
-          case 'g':
-            for (i = 0; i < 4; i++)
-              {
-                char *token = strsep (&optarg, "x+");
-                if (!token)
-                  break;
-                geometry[i] = atof (token);
-              }
-
-            fprintf (stderr, "geometry: %.0fx%.0f+%.0f+%.0f\n",
-                     geometry[0], geometry[1], geometry[2], geometry[3]);
-            break;
-
-          case 't':
-            if (optarg[0] <  '0' || optarg[0] >  '3' || strchr (optarg, ':') == NULL)
-              {
-                fprintf (stderr, "Argument for texture file needs a slot from 0 to 3\n");
-                exit (1);
-              }
-
-            slot = optarg[0] - '0';
-
-            repeat = 1;
-            nearest = 0;
-
-            for (c = 1; optarg[c] != ':' && optarg[c] != '\0'; c++)
-              {
-                switch (optarg[c])
-                  {
-                    case 'r':
-                      repeat = 1;
-                      break;
-                    case 'o':
-                      repeat = 0;
-                      break;
-                    case 'i':
-                      nearest = 0;
-                      break;
-                    case 'n':
-                      nearest = 1;
-                      break;
-                    default:
-                      break;
-                  }
-              }
-
-            if (optarg[c] != ':' ||
-                !load_texture (optarg + c + 1, GL_TEXTURE_2D, &tex[slot], nearest, repeat))
-              {
-                fprintf (stderr, "Failed to load texture. Aborting.\n");
-                exit (1);
-              }
-            break;
-
-          case 'h':
-          case ':':
-          default:
-            fprintf (stderr, "Usage:\n  %s [options] <shaderfile>\n", argv[0]);
-            fprintf (stderr, "Options:    --help\n");
-            fprintf (stderr, "            --texture [0-3]:<textureimage>\n");
-            exit (c == ':' ? 1 : 0);
-            break;
-        }
-    }
-
-
-  if (optind != argc - 1)
-    {
-      fprintf (stderr, "No shaderfile specified. Aborting.\n");
-      exit (-1);
-    }
-
-  frag_code = load_file (argv[optind]);
-  if (!frag_code)
-    {
-      fprintf (stderr, "Failed to load Shaderfile. Aborting.\n");
-      exit (-1);
-    }
-
-  prog = link_program (frag_code);
-  if (prog < 0)
-    {
-      fprintf (stderr, "Failed to link shader program. Aborting\n");
-      exit (-1);
-    }
-
-  glutDisplayFunc  (display);
-  glutMouseFunc    (mouse_press_handler);
-  glutMotionFunc   (mouse_move_handler);
-  glutKeyboardFunc (keyboard_handler);
-
-  redisplay (1000/60);
-
-  glutMainLoop ();
-
-  return 0;
+void error_callback(int error, const char* description) {
+  fprintf(stderr, "Erreur GLFW: %s\n", description);
 }
 
+GLFWwindow* init_glfw_window() {
+  glfwSetErrorCallback(error_callback);
+  if (!glfwInit()) {
+    fprintf(stderr, "Failed to initialize GLFW\n");
+    exit(-1);
+  }
+
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
+  glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
+  GLFWwindow* window = glfwCreateWindow(800, 600, "Raymarcher", NULL, NULL);
+  if (!window) {
+    fprintf(stderr, "Failed to create GLFW window\n");
+    glfwTerminate();
+    exit(-1);
+  }
+
+  glfwMakeContextCurrent(window);
+
+  glfwSetKeyCallback(window, keyboard_handler);
+  glfwSetMouseButtonCallback(window, mouse_button_callback);
+  glfwSetCursorPosCallback(window, cursor_position_callback);
+  return window;
+}
+
+
+
+int main () {
+
+  GLFWwindow* window = init_glfw_window();
+  init_glew();
+  scene = init_scene();
+
+  char* vert_code = load_file("/home/antoine/Documents/prepa/tipe/vertex.glsl");
+  char* frag_code = load_file("/home/antoine/Documents/prepa/tipe/frag.glsl");
+  if (!vert_code || !frag_code) {
+    fprintf(stderr, "Failed to load shader code\n");
+    return -1;
+  }
+
+  prog = link_program((const GLchar*)vert_code, (const GLchar*)frag_code);
+
+  free(vert_code);
+  free(frag_code);
+
+  if (prog < 0){
+    fprintf (stderr, "Failed to link shaders program. Aborting\n");
+    exit (-1);
+  }
+
+  GLfloat vertices[] = {
+    -1.0f,  1.0f,
+    -1.0f, -1.0f,
+    1.0f, -1.0f,
+    1.0f,  1.0f
+  };
+
+  GLuint vao;
+  glGenVertexArrays(1, &vao);
+  glBindVertexArray(vao);
+
+  GLuint vbo;
+  glGenBuffers(1, &vbo);
+  glBindBuffer(GL_ARRAY_BUFFER, vbo);
+  glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+
+  glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(GLfloat), (GLvoid*)0);
+  glEnableVertexAttribArray(0);
+
+  glBindBuffer(GL_ARRAY_BUFFER, 0);
+  glBindVertexArray(0);
+  
+  glGenBuffers(1, &ubo);
+  glBindBuffer(GL_UNIFORM_BUFFER, ubo);
+  glBindBufferBase(GL_UNIFORM_BUFFER, 0, ubo);
+  glBufferData(GL_UNIFORM_BUFFER, obj_size*scene->nb, NULL, GL_STATIC_DRAW); // allocate 96*scene->nb bytes of memory
+  glBindBuffer(GL_UNIFORM_BUFFER, 0);
+  
+  
+  load_scene(scene);
+  
+  while (!glfwWindowShouldClose(window)) {
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    display(window);
+    glBindVertexArray(vao);
+    glDrawArrays(GL_TRIANGLE_FAN, 0, 4); // Dessiner un carré avec 4 vertices
+    glBindVertexArray(0);
+    glfwSwapBuffers(window);
+    glfwPollEvents();
+  }
+
+  glfwTerminate();
+  free_scene(scene);
+  return 0;
+}

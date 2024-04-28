@@ -1,12 +1,15 @@
+#version 330 core
+
 struct Object {
     int id; //0 : sphere | 1 : torus | 2 : cylender | 3 : box | 4 : plan
-    vec3 color;
-    vec3 pos;
-    vec3 rot; //normale for plans
-    vec3 size;
+    vec4 color;
+    vec4 pos;
+    vec4 rot; //normale for plans
+    vec4 size;
     float radius;
     float thickness; //thickness for torus and rounding for cylender and box
-};
+}; //4+16+16+16+16+4+4=76
+//4+12+12+12+12+4+4
 
 const int nbObjects = 6;
 
@@ -19,7 +22,10 @@ uniform sampler2D           iChannel0;             // input channel. XX = 2D/Cub
 uniform sampler2D           iChannel1;             // input channel. XX = 2D/Cube
 uniform vec4                iDate;                 // (year, month, day, time in secs)
 uniform float               iSampleRate;           // sound sample rate (i.e., 44100)
-uniform Object[nbObjects]   iObjects;
+layout (std140) uniform Objects
+{
+    Object[nbObjects]   iObjects;
+};
 
 
 //raymarcher
@@ -39,6 +45,7 @@ const float RADIUS_MOUSE = 2.0;
 //other data
 const float PI = 3.141592;
 const float ZOOM = 1.0;
+
 
 //fonction de rotation
 vec3 rotateX(vec3 p, float a){
@@ -117,19 +124,19 @@ vec4 minDist(vec4 a, vec4 b){
 
 vec4 colDist(vec3 p, Object obj) {
     if(obj.id == 0) {
-        return Sphere(p - obj.pos, obj.radius, obj.color);
+        return Sphere(p - obj.pos.xyz, obj.radius, obj.color.xyz);
     }
     if(obj.id == 1) {
-        return Torus(p - obj.pos, obj.rot, obj.radius, obj.thickness, obj.color);
+        return Torus(p - obj.pos.xyz, obj.rot.xyz, obj.radius, obj.thickness, obj.color.xyz);
     }
     if(obj.id == 2) {
-        return Cylender(p - obj.pos, obj.rot, obj.size.xy, obj.thickness, obj.color);
+        return Cylender(p - obj.pos.xyz, obj.rot.xyz, obj.size.xy, obj.thickness, obj.color.xyz);
     }
     if(obj.id == 3) {
-        return Box(p - obj.pos, obj.rot, obj.size, obj.thickness, obj.color);
+        return Box(p - obj.pos.xyz, obj.rot.xyz, obj.size.xyz, obj.thickness, obj.color.xyz);
     }
     else {
-        return Plane(p - obj.pos, obj.rot, obj.color);
+        return Plane(p - obj.pos.xyz, obj.rot.xyz, obj.color.xyz);
     }
 }
 
@@ -142,7 +149,28 @@ vec4 scene(vec3 p){
     }
     return obj;
 }
-
+/*
+vec4 scene(vec3 p){
+    vec4 P = Plane(p - POS_P, NORMALE_P, COLOR_P);
+    vec4 obj = P;
+    
+    vec4 S1 = Sphere(p - POS_S1, SIZE_S1, COLOR_S1);
+    vec4 S2 = Sphere(p - POS_S2, SIZE_S2, COLOR_S2);
+    S1 = substract(S1, S2);
+    obj = minDist(obj, S1);
+    
+    vec4 T = Torus(p - POS_T, ROT_T, RAY_T, THICKNESS_T, COLOR_T);
+    obj = minDist(obj, T);
+    
+    vec4 C = Cylender(p - POS_C, ROT_C, SIZE_C, SMOOTH_C, COLOR_C);
+    obj = minDist(obj, C);
+    
+    vec4 B = Box(p - POS_B, ROT_B, SIZE_B, SMOOTH_B, COLOR_B);
+    obj = minDist(obj, B);
+    
+    return obj;
+}
+*/
 //raymarching
 vec4 march(vec3 rO, vec3 rD){
     vec3 cP = rO; //current point
