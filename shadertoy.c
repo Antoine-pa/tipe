@@ -9,27 +9,28 @@
 #include <gdk-pixbuf/gdk-pixbuf.h>
 
 struct Object_s {
+  float color[3];
   int id; //0 : sphere | 1 : torus | 2 : cylinder | 3 : box | 4 : plan
-  float color[4];
-  float pos[4];
-  float rot[4]; //normale for plans
-  float size[4];
+  float pos[3];
   float radius;
+  float rot[3]; //normale for plans
   float thickness; //thickness for torus and rounding for cylinder and box
+  float size[3];
+  float pad;
 };
 
 typedef struct Object_s Object_t;
 
-const int obj_size = 96;
+const int obj_size = sizeof(Object_t);
 
 struct Scene_s {
-  Object_t** obj;
+  Object_t* obj;
   int nb;
 };
 
 typedef struct Scene_s Scene_t;
 
-Object_t* init_object(int id,
+Object_t init_object(int id,
                       float r, float g, float b,
                       float x, float y, float z,
                       float alpha, float beta, float gamma,
@@ -37,48 +38,32 @@ Object_t* init_object(int id,
                       float radius,
                       float thickness) {
 
-  Object_t* o = malloc(sizeof(Object_t));
+  Object_t o = {
+    .color = {r, g, b},
+    .pos = {x, y, z},
+    .rot = {alpha, beta, gamma},
+    .size = {size_x, size_y, size_z},
+    .radius = radius,
+    .thickness = thickness,
+    .id = id,
+    .pad = 0.0
+  };
   
-  o->id = id;
-
-  o->color[0] = r;
-  o->color[1] = g;
-  o->color[2] = b;
-  o->color[3] = 2.0;
-
-  o->pos[0] = x;
-  o->pos[1] = y;
-  o->pos[2] = z;
-  o->pos[3] = 0.0;
-
-  o->rot[0] = alpha;
-  o->rot[1] = beta;
-  o->rot[2] = gamma;
-  o->rot[3] = 0.0;
-
-  o->size[0] = size_x;
-  o->size[1] = size_y;
-  o->size[2] = size_z;
-  o->size[3] = 0.0;
-
-  o->radius = radius;
-
-  o->thickness = thickness;
   return o;
 }
 
-void print_object(Object_t* o) {
-  printf("type : %d\ncolor : %f, %f, %f\n", o->id, o->color[0], o->color[1], o->color[2]);
-  printf("position : %f, %f, %f\n", o->pos[0], o->pos[1], o->pos[2]);
-  printf("rotation : %f, %f, %f\n", o->rot[0], o->rot[1], o->rot[2]);
-  printf("size : %f, %f, %f\n", o->size[0], o->size[1], o->size[2]);
-  printf("radius : %f\nthickness : %f\n=======\n", o->radius, o->thickness);
+void print_object(Object_t o) {
+  printf("type : %d\ncolor : %f, %f, %f\n", o.id, o.color[0], o.color[1], o.color[2]);
+  printf("position : %f, %f, %f\n", o.pos[0], o.pos[1], o.pos[2]);
+  printf("rotation : %f, %f, %f\n", o.rot[0], o.rot[1], o.rot[2]);
+  printf("size : %f, %f, %f\n", o.size[0], o.size[1], o.size[2]);
+  printf("radius : %f\nthickness : %f\n=======\n", o.radius, o.thickness);
 }
 
 Scene_t* init_scene() {
   int nb_objects = 6;
   Scene_t* scene = malloc(sizeof(Scene_t));
-  Object_t** objs = malloc(sizeof(Object_t*)*nb_objects);
+  Object_t* objs = malloc(sizeof(Object_t)*nb_objects);
   objs[0] = init_object(0,   0.06, 0.04, 1.0,   0.0, 0.0, 0.0,    0.0, 0.0, 0.0,     0.0, 0.0, 0.0,   0.5,  0.0);
   objs[1] = init_object(0,   0.3, 0.04, 0.06,   0.1, 0.45, -0.1,  0.0, 0.0, 0.0,     0.0, 0.0, 0.0,   0.2,  0.0);
   objs[2] = init_object(1,   1.0, 0.4, 0.0,     0.0, 0.2, 0.1,    0.0, 0.37, 0.93,   0.0, 0.0, 0.0,   0.8,  0.1);
@@ -91,9 +76,6 @@ Scene_t* init_scene() {
 }
 
 void free_scene(Scene_t* scene) {
-  for(int i = 0; i<scene->nb; i++) {
-    free(scene->obj[i]);
-  }
   free(scene->obj);
   free(scene);
 }
@@ -102,8 +84,7 @@ static double geometry[4] = { 0, };
 static double mouse[4] = { 0, };
 
 static GLint prog = 0;
-static GLenum tex[4];
-static GLuint ubo = 0;
+static GLuint scene_data_ubo = 0;
 static Scene_t* scene = NULL;
 
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
@@ -164,20 +145,11 @@ void keyboard_handler(GLFWwindow* window, int key, int scancode, int action, int
 }
 
 void load_scene(Scene_t* scene) {
-    glBindBuffer(GL_UNIFORM_BUFFER, ubo);
+    glBindBuffer(GL_UNIFORM_BUFFER, scene_data_ubo);
     GLvoid* bufferData = glMapBuffer(GL_UNIFORM_BUFFER, GL_WRITE_ONLY);
     if(bufferData) {
-        for(int i = 0; i < scene->nb; i++) {
-            Object_t* obj = scene->obj[i];
-            memcpy(bufferData + obj_size * i, &obj->id, sizeof(int));
-            memcpy(bufferData + obj_size * i + 16, obj->color, sizeof(float) * 4);
-            memcpy(bufferData + obj_size * i + 32, obj->pos, sizeof(float) * 4);
-            memcpy(bufferData + obj_size * i + 48, obj->rot, sizeof(float) * 4);
-            memcpy(bufferData + obj_size * i + 64, obj->size, sizeof(float) * 4);
-            memcpy(bufferData + obj_size * i + 80, &obj->radius, sizeof(float));
-            memcpy(bufferData + obj_size * i + 84, &obj->thickness, sizeof(float));
-        }
-        glUnmapBuffer(GL_UNIFORM_BUFFER);
+      memcpy(bufferData, scene->obj, scene->nb*sizeof(Object_t));
+      glUnmapBuffer(GL_UNIFORM_BUFFER);
     } else {
         fprintf(stderr, "Failed to map uniform buffer.\n");
     }
@@ -211,11 +183,8 @@ void display(GLFWwindow* window) {
       frames = 0;
     }
 
-  uindex = glGetUniformLocation (prog, "iGlobalTime");
-  if (uindex >= 0)
-    glUniform1f (uindex, ((float) ticks) / 1000.0);
 
-  uindex = glGetUniformLocation (prog, "iTime");
+  uindex = glGetUniformLocation (prog, "iGlobalTime");
   if (uindex >= 0)
     glUniform1f (uindex, ((float) ticks) / 1000.0);
 
@@ -228,71 +197,9 @@ void display(GLFWwindow* window) {
         glUniform3f (uindex, width, height, 1.0);
     }
 
-  uindex = glGetUniformLocation (prog, "iOffset");
-  if (uindex >= 0)
-    {
-      if (geometry[0] > 0.1 && geometry[1] > 0.1)
-        {
-          glUniform2f (uindex,
-                       x0 + geometry[2],
-                       geometry[1] - (y0 + height) - geometry[3]);
-        }
-      else
-        {
-          glUniform2f (uindex, 0.0, 0.0);
-        }
-    }
-
   uindex = glGetUniformLocation (prog, "iMouse");
   if (uindex >= 0)
     glUniform4f (uindex, mouse[0],  mouse[1], mouse[2], mouse[3]);
-
-
-  uindex = glGetUniformLocation (prog, "iChannel0");
-  if (uindex >= 0)
-    {
-      glActiveTexture (GL_TEXTURE0 + 0);
-      glBindTexture (GL_TEXTURE_2D, tex[0]);
-      glUniform1i (uindex, 0);
-    }
-
-  uindex = glGetUniformLocation (prog, "iChannel1");
-  if (uindex >= 0)
-    {
-      glActiveTexture (GL_TEXTURE0 + 1);
-      glBindTexture (GL_TEXTURE_2D, tex[1]);
-      glUniform1i (uindex, 1);
-    }
-
-  uindex = glGetUniformLocation (prog, "iChannel2");
-  if (uindex >= 0)
-    {
-      glActiveTexture (GL_TEXTURE0 + 2);
-      glBindTexture (GL_TEXTURE_2D, tex[2]);
-      glUniform1i (uindex, 2);
-    }
-
-  uindex = glGetUniformLocation (prog, "iChannel3");
-  if (uindex >= 0)
-    {
-      glActiveTexture (GL_TEXTURE0 + 3);
-      glBindTexture (GL_TEXTURE_2D, tex[3]);
-      glUniform1i (uindex, 3);
-    }
-
-  uindex = glGetUniformLocation (prog, "resolution");
-  if (uindex >= 0)
-    {
-      if (geometry[0] > 0.1 && geometry[1] > 0.1)
-        glUniform2f (uindex, geometry[0], geometry[1]);
-      else
-        glUniform2f (uindex, width, height);
-    }
-
-  uindex = glGetUniformLocation (prog, "led_color");
-  if (uindex >= 0)
-    glUniform3f (uindex, 0.5, 0.3, 0.8);
-  
 }
 
 
@@ -318,7 +225,6 @@ GLint compile_shader (const GLenum  shader_type,
 
   return -1;
 }
-
 
 GLint link_program(const GLchar* vert_code, const GLchar* frag_code) {
   GLint frag, vert, program;
@@ -395,7 +301,6 @@ void init_glew (void) {
     }
 }
 
-
 char * load_file(char *filename) {
   FILE *f;
   int size;
@@ -427,7 +332,7 @@ char * load_file(char *filename) {
 }
 
 void error_callback(int error, const char* description) {
-  fprintf(stderr, "Erreur GLFW: %s\n", description);
+  fprintf(stderr, "%d : Erreur GLFW: %s\n", error, description);
 }
 
 GLFWwindow* init_glfw_window() {
@@ -503,10 +408,10 @@ int main () {
   glBindBuffer(GL_ARRAY_BUFFER, 0);
   glBindVertexArray(0);
   
-  glGenBuffers(1, &ubo);
-  glBindBuffer(GL_UNIFORM_BUFFER, ubo);
-  glBindBufferBase(GL_UNIFORM_BUFFER, 0, ubo);
-  glBufferData(GL_UNIFORM_BUFFER, obj_size*scene->nb, NULL, GL_STATIC_DRAW); // allocate 96*scene->nb bytes of memory
+  glGenBuffers(1, &scene_data_ubo);
+  glBindBuffer(GL_UNIFORM_BUFFER, scene_data_ubo);
+  glBindBufferBase(GL_UNIFORM_BUFFER, 0, scene_data_ubo);
+  glBufferData(GL_UNIFORM_BUFFER, obj_size*scene->nb, NULL, GL_STATIC_DRAW); // allocate 64*scene->nb bytes of memory
   glBindBuffer(GL_UNIFORM_BUFFER, 0);
   
   

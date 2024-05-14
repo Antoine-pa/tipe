@@ -1,27 +1,22 @@
 #version 330 core
 
-struct Object {
+const struct Object {
+    vec3 color;
     int id; //0 : sphere | 1 : torus | 2 : cylender | 3 : box | 4 : plan
-    vec4 color;
-    vec4 pos;
-    vec4 rot; //normale for plans
-    vec4 size;
+    vec3 pos;
     float radius;
+    vec3 rot; //normale for plans
     float thickness; //thickness for torus and rounding for cylender and box
-}; //4+16+16+16+16+4+4=76
-//4+12+12+12+12+4+4
+    vec3 size;
+    float pad;
+};
 
 const int nbObjects = 6;
 
 uniform vec3                iResolution;           // viewport resolution (in pixels)
 uniform float               iGlobalTime;           // shader playback time (in seconds)
-uniform float               iChannelTime[4];       // channel playback time (in seconds)
-uniform vec3                iChannelResolution[4]; // channel resolution (in pixels)
 uniform vec4                iMouse;                // mouse pixel coords. xy: current (if MLB down), zw: click
-uniform sampler2D           iChannel0;             // input channel. XX = 2D/Cube
-uniform sampler2D           iChannel1;             // input channel. XX = 2D/Cube
-uniform vec4                iDate;                 // (year, month, day, time in secs)
-uniform float               iSampleRate;           // sound sample rate (i.e., 44100)
+
 layout (std140) uniform Objects
 {
     Object[nbObjects]   iObjects;
