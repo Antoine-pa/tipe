@@ -380,8 +380,8 @@ int main (int argc, char* argv[]) {
   init_glew();
   scene = init_scene();
 
-  char* vert_code = load_file("/home/antoine/Documents/prepa/tipe/global_copy/vertex.glsl");
-  char* frag_code = load_file("/home/antoine/Documents/prepa/tipe/global_copy/frag.glsl");
+  char* vert_code = load_file("/home/antoine/Documents/prepa/tipe_new_version/tipe/vertex.glsl");
+  char* frag_code = load_file("/home/antoine/Documents/prepa/tipe_new_version/tipe/frag.glsl");
   if (!vert_code || !frag_code) {
     fprintf(stderr, "Failed to load shader code\n");
     return -1;
