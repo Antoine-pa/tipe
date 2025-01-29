@@ -36,6 +36,7 @@ static GLint prog = 0;
 static GLuint scene_data_ubo = 0;
 static Scene_t* scene = NULL;
 int view_perf;
+int output;
 
 Object_t init_object(int type,
                       float r, float g, float b,
@@ -370,19 +371,21 @@ void glSendData() {
 }
 
 int main (int argc, char* argv[]) {
-  if(argc == 2) {
+  if(argc == 3) {
     view_perf = atoi(argv[1]);
+    output = atoi(argv[2]);
   }
   else {
-    view_perf = 0;
+    printf("erreur :\nLa commande doit etre de la forme :\n./shadertoy.bin [n1] [n2]\n avec n1 et n2 = 0 ou 1. n1 signifiant la vue des performances et n2 si on doit enregistrer une image.\n");
+    return 0;
   }
   
   GLFWwindow* window = init_glfw_window();
   init_glew();
   scene = init_scene();
 
-  char* vert_code = load_file("/home/antoine/Documents/prepa/tipe_new_version/tipe/prog/vertex.glsl");
-  char* frag_code = load_file("/home/antoine/Documents/prepa/tipe_new_version/tipe/prog/frag.glsl");
+  char* vert_code = load_file("/home/antoine/Documents/prepa/tipe_new_version/tipe/src/vertex.glsl");
+  char* frag_code = load_file("/home/antoine/Documents/prepa/tipe_new_version/tipe/src/frag.glsl");
   if (!vert_code || !frag_code) {
     fprintf(stderr, "Failed to load shader code\n");
     return -1;
