@@ -3,6 +3,8 @@
 #include <string.h>
 #include <getopt.h>
 #include <stdbool.h>
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
@@ -141,9 +143,9 @@ void display(GLFWwindow* window) {
         glUniform4f (uindex, width, height, 1.0, view_perf);
     }
 
-  uindex = glGetUniformLocation (prog, "iMouse");
-  if (uindex >= 0)
-    glUniform4f (uindex, mouse[0],  mouse[1], mouse[2], mouse[3]);
+  //uindex = glGetUniformLocation (prog, "iMouse");
+  //if (uindex >= 0)
+    //glUniform4f (uindex, mouse[0],  mouse[1], mouse[2], mouse[3]);
 }
 
 GLint compile_shader (const GLenum  shader_type,
@@ -370,6 +372,37 @@ void glSendData() {
   load_scene(scene);
 }
 
+void saveFramebuffer(const char* filename, int width, int height) {
+  // Allouer de la mémoire pour les pixels
+  unsigned char* pixels = (unsigned char*)malloc(3 * width * height);
+
+  // Lire les pixels depuis le framebuffer
+  glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels);
+
+  // Allouer de la mémoire pour l'image retournée
+  unsigned char* flippedPixels = (unsigned char*)malloc(3 * width * height);
+
+  // Retourner l'image verticalement
+  for (int y = 0; y < height; y++) {
+    memcpy(
+      flippedPixels + (height - 1 - y) * 3 * width,  // Ligne destination (inversée)
+      pixels + y * 3 * width,                        // Ligne source
+      3 * width                                     // Taille d'une ligne
+    );
+  }
+
+  // Sauvegarder l'image retournée au format PNG
+  if (stbi_write_png(filename, width, height, 3, flippedPixels, width * 3)) {
+    printf("Image sauvegardée dans '%s'.\n", filename);
+  } else {
+    fprintf(stderr, "Erreur lors de la sauvegarde de l'image.\n");
+  }
+
+  // Libérer la mémoire
+  free(pixels);
+  free(flippedPixels);
+}
+
 int main (int argc, char* argv[]) {
   if(argc == 3) {
     view_perf = atoi(argv[1]);
@@ -424,17 +457,22 @@ int main (int argc, char* argv[]) {
   glBindVertexArray(0);
 
   glSendData();
-  
+  int width, height;
+  glfwGetWindowSize(window, &width, &height);
   while (!glfwWindowShouldClose(window)) {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     display(window);
     glBindVertexArray(vao);
     glDrawArrays(GL_TRIANGLE_FAN, 0, 4); // Dessiner un carré avec 4 vertices
     glBindVertexArray(0);
+    if(output > 0) {
+      saveFramebuffer("output.png", width, height);
+      break;
+    }
     glfwSwapBuffers(window);
     glfwPollEvents();
   }
-
+  glfwDestroyWindow(window);
   glfwTerminate();
   free_scene(scene);
   return 0;
