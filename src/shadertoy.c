@@ -3,6 +3,7 @@
 #include <string.h>
 #include <getopt.h>
 #include <stdbool.h>
+#include <unistd.h> //getcwd
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
@@ -416,9 +417,20 @@ int main (int argc, char* argv[]) {
   GLFWwindow* window = init_glfw_window();
   init_glew();
   scene = init_scene();
+  
+  int buffer_size = 100;
+  char directory[buffer_size];
+  getcwd(directory, buffer_size);
 
-  char* vert_code = load_file("/home/antoine/Documents/prepa/tipe_new_version/tipe/src/vertex.glsl");
-  char* frag_code = load_file("/home/antoine/Documents/prepa/tipe_new_version/tipe/src/frag.glsl");
+  // Construire le chemin complet du fichier
+  char vertex_path[buffer_size + 50];
+  snprintf(vertex_path, sizeof(vertex_path), "%s/src/vertex.glsl", directory);
+  char fragment_path[buffer_size + 50];
+  snprintf(fragment_path, sizeof(fragment_path), "%s/src/frag.glsl", directory);
+
+  // Charger le fichier
+  char* vert_code = load_file(vertex_path);
+  char* frag_code = load_file(fragment_path);
   if (!vert_code || !frag_code) {
     fprintf(stderr, "Failed to load shader code\n");
     return -1;
