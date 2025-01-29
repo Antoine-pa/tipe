@@ -128,7 +128,8 @@ void display(GLFWwindow* window) {
 
   uindex = glGetUniformLocation (prog, "iGlobalTime");
   if (uindex >= 0)
-    glUniform1f (uindex, ((float) ticks) / 1000.0);
+    glUniform1f (uindex, 0.0);
+    //glUniform1f (uindex, ((float) ticks) / 1000.0);
 
   uindex = glGetUniformLocation (prog, "iResolution_");
   if (uindex >= 0)
@@ -380,8 +381,8 @@ int main (int argc, char* argv[]) {
   init_glew();
   scene = init_scene();
 
-  char* vert_code = load_file("/home/antoine/Documents/prepa/tipe_new_version/tipe/vertex.glsl");
-  char* frag_code = load_file("/home/antoine/Documents/prepa/tipe_new_version/tipe/frag.glsl");
+  char* vert_code = load_file("/home/antoine/Documents/prepa/tipe_new_version/tipe/prog/vertex.glsl");
+  char* frag_code = load_file("/home/antoine/Documents/prepa/tipe_new_version/tipe/prog/frag.glsl");
   if (!vert_code || !frag_code) {
     fprintf(stderr, "Failed to load shader code\n");
     return -1;
