@@ -1,7 +1,7 @@
-#version 330 core
+#version 450 core
 #extension GL_ARB_shading_language_420pack : require
 
-const struct Object {
+struct Object {
     vec3 color;
     int type; //0 : sphere | 1 : torus | 2 : cylender | 3 : box | 4 : plan
     vec3 pos;
@@ -19,11 +19,18 @@ uniform vec4                iMouse;                // mouse pixel coords. xy: cu
 int iViewPerf = int(iResolution_.a);
 vec3 iResolution = iResolution_.rgb;
 //uniform Object iObjects[6];
-
+/*
 layout (std140) uniform Objects
 {
     Object[nbObjects]   iObjects;
 };
+*/
+
+layout(std430, binding = 0) buffer Objects {
+    Object iObjects[];
+};
+
+out vec4 FragColor;
 
 struct Data
 {
@@ -223,7 +230,7 @@ Data lighting(vec3 p, vec3 n){
     return lighting; //else we return the dot product between the normale and the direction of the light form of nb positive
 }
 
-void mainImage( out vec4 fragColor, in vec2 fragCoord )
+void mainImage( out vec4 frag_Color, in vec2 fragCoord )
 {
     vec2 uv = (fragCoord - (iResolution.xy * 0.5)) / iResolution.y;
     
@@ -265,7 +272,7 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
         //black and white
         col = color_steps(data_scene.steps, MAX_STEPS);
     }
-    fragColor = vec4(col, 1.0);
+    frag_Color = vec4(col, 1.0);
 }
 
 void main (void)
@@ -273,5 +280,5 @@ void main (void)
   vec4 color = vec4 (0.0, 0.0, 0.0, 1.0);
   mainImage (color, gl_FragCoord.xy);
   color.w = 1.0;
-  gl_FragColor = color;
+  FragColor = color;
 }

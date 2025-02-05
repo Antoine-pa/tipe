@@ -36,7 +36,7 @@ static double geometry[4] = { 0, };
 static double mouse[4] = { 0, };
 
 static GLint prog = 0;
-static GLuint scene_data_ubo = 0;
+static GLuint scene_data_ssbo = 0;
 static Scene_t* scene = NULL;
 int view_perf;
 int output;
@@ -92,17 +92,6 @@ void free_scene(Scene_t* scene) {
   free(scene);
 }
 
-void load_scene(Scene_t* scene) {
-    glBindBuffer(GL_UNIFORM_BUFFER, scene_data_ubo);
-    GLvoid* bufferData = glMapBuffer(GL_UNIFORM_BUFFER, GL_WRITE_ONLY);
-    if(bufferData) {
-      memcpy(bufferData, scene->obj, scene->nb*sizeof(Object_t));
-      glUnmapBuffer(GL_UNIFORM_BUFFER);
-    } else {
-        fprintf(stderr, "Failed to map uniform buffer.\n");
-    }
-    glBindBuffer(GL_UNIFORM_BUFFER, 0);
-}
 
 void display(GLFWwindow* window) {
   
@@ -222,28 +211,29 @@ GLint link_program(const GLchar* vert_code, const GLchar* frag_code) {
 }
 
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
-    double xpos, ypos;
-    int x0, y0, width, height;
+  mods = mods;
+  double xpos, ypos;
+  int x0, y0, width, height;
 
-    if (button != GLFW_MOUSE_BUTTON_LEFT)
-        return;
+  if (button != GLFW_MOUSE_BUTTON_LEFT)
+    return;
 
-    if (action == GLFW_PRESS) {
-        glfwGetWindowPos(window, &x0, &y0);
-        glfwGetWindowSize(window, &width, &height);
-        glfwGetCursorPos(window, &xpos, &ypos);
+  if (action == GLFW_PRESS) {
+    glfwGetWindowPos(window, &x0, &y0);
+    glfwGetWindowSize(window, &width, &height);
+    glfwGetCursorPos(window, &xpos, &ypos);
 
-        if (geometry[0] > 0.1 && geometry[1] > 0.1) {
-            mouse[2] = mouse[0] = geometry[2] + x0 + xpos;
-            mouse[3] = mouse[1] = geometry[1] - geometry[3] - y0 - ypos;
-        } else {
-            mouse[2] = mouse[0] = xpos;
-            mouse[3] = mouse[1] = height - ypos;
-        }
+    if (geometry[0] > 0.1 && geometry[1] > 0.1) {
+      mouse[2] = mouse[0] = geometry[2] + x0 + xpos;
+      mouse[3] = mouse[1] = geometry[1] - geometry[3] - y0 - ypos;
     } else {
-        mouse[2] = -1;
-        mouse[3] = -1;
+      mouse[2] = mouse[0] = xpos;
+      mouse[3] = mouse[1] = height - ypos;
     }
+  } else {
+    mouse[2] = -1;
+    mouse[3] = -1;
+  }
 }
 
 void cursor_position_callback(GLFWwindow* window, double xpos, double ypos) {
@@ -265,6 +255,7 @@ void cursor_position_callback(GLFWwindow* window, double xpos, double ypos) {
 }
 
 void keyboard_handler(GLFWwindow* window, int key, int scancode, int action, int mods) {
+  scancode = scancode;
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
         glfwSetWindowShouldClose(window, GLFW_TRUE);
     } else if ((key == GLFW_KEY_Q || key == GLFW_KEY_ESCAPE) && action == GLFW_PRESS && (mods & GLFW_MOD_CONTROL)) {
@@ -363,14 +354,25 @@ GLFWwindow* init_glfw_window() {
   return window;
 }
 
+void load_scene() {
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, scene_data_ssbo);
+
+    glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, scene->nb * sizeof(Object_t), scene->obj);
+
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+}
+
+
 void glSendData() {
-  glGenBuffers(1, &scene_data_ubo);
-  glBindBuffer(GL_UNIFORM_BUFFER, scene_data_ubo);
-  glBindBufferBase(GL_UNIFORM_BUFFER, 0, scene_data_ubo);
-  glBufferData(GL_UNIFORM_BUFFER, sizeof(Object_t)*scene->nb, NULL, GL_STATIC_DRAW);
-  glBindBuffer(GL_UNIFORM_BUFFER, 0);
-  
-  load_scene(scene);
+    if (scene_data_ssbo == 0) {  
+        glGenBuffers(1, &scene_data_ssbo);
+    }
+
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, scene_data_ssbo);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, scene->nb * sizeof(Object_t), NULL, GL_DYNAMIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, scene_data_ssbo);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+    load_scene();
 }
 
 void saveFramebuffer(const char* filename, int width, int height) {
