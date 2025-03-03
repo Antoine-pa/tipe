@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 199309L
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -6,11 +7,10 @@
 #include <unistd.h> //getcwd
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
+#include <time.h>
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
-
-#include <gdk-pixbuf/gdk-pixbuf.h>
 
 struct Object_s {
   float color[3];
