@@ -11,7 +11,17 @@ struct Object {
     vec3 size;
     int id;
 };
-const int nbObjects = 6;
+
+struct KDNodeGPU {
+    float split_pos;
+    int split_axis;
+    int left_child_index;
+    int right_child_index;
+    int start_index;
+    int end_index;
+};
+
+const int nbObjects = 5;
 
 uniform vec4                iResolution_;           // viewport resolution (in pixels)
 uniform float               iGlobalTime;           // shader playback time (in seconds)
@@ -28,6 +38,10 @@ layout (std140) uniform Objects
 
 layout(std430, binding = 0) buffer Objects {
     Object iObjects[];
+};
+
+layout(std430, binding = 1) buffer KDTree {
+    KDNodeGPU kdtree[];
 };
 
 out vec4 FragColor;
@@ -228,6 +242,23 @@ Data lighting(vec3 p, vec3 n){
     
     lighting.color = vec3(l);
     return lighting; //else we return the dot product between the normale and the direction of the light form of nb positive
+}
+
+vec4 traverseKDTree(vec3 rayOrigin, vec3 rayDirection) {
+    int currentNodeIndex = 0;
+    while (currentNodeIndex >= 0) {
+        KDNodeGPU node = kdtree[currentNodeIndex];
+        
+        // Calculer l'intersection avec le plan de séparation
+        // et déterminer le prochain nœud à visiter
+        
+        if (rayDirection[node.split_axis] < node.split_pos) {
+            currentNodeIndex = node.left_child_index;
+        } else {
+            currentNodeIndex = node.right_child_index;
+        }
+    }
+    return vec4(0.0); // Retourner la couleur ou la distance calculée
 }
 
 void mainImage( out vec4 frag_Color, in vec2 fragCoord )
