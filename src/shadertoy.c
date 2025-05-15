@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 199309L
+#define _USE_MATH_DEFINES
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,61 +12,15 @@
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
+#include "kdtree.h"
+#include <GL/glu.h>  // Pour gluSphere, gluCylinder, etc.
+#include "objects.h"  // Inclure le nouveau fichier objects.h
 
-struct Object_s {
-  float color[3];
-  int type; //0 : sphere | 1 : torus | 2 : cylinder | 3 : box | 4 : plan
-  float pos[3];
-  float radius;
-  float rot[3]; //normale for plans
-  float thickness; //thickness for torus and rounding for cylinder and box
-  float size[3];
-  int id;
-};
-
-typedef struct Object_s Object_t;
-
-// Déclaration de la structure KDNode
-struct KDNode {
-    float split_pos;
-    int split_axis;
-    int left_child_index;
-    int right_child_index;
-    int start_index;
-    int end_index;
-};
-
-typedef struct KDNode KDNode_t;
-
-// Déclaration de la structure KDNodeGPU
-struct KDNodeGPU {
-    float split_pos;
-    int split_axis;
-    int left_child_index;
-    int right_child_index;
-    int start_index;
-    int end_index;
-};
-
-typedef struct KDNodeGPU KDNodeGPU_t;
-
-// Structure pour stocker les nœuds alloués
-struct KDTreeInfo {
-    KDNode_t* root;
-    KDNode_t** all_nodes;
-    int node_count;
-    int max_nodes;
-};
-
-typedef struct KDTreeInfo KDTreeInfo_t;
-
-struct Scene_s {
-  Object_t* obj;
-  int nb;
-  KDTreeInfo_t* kdtree_info;
-};
-
-typedef struct Scene_s Scene_t;
+#ifdef DEBUG_KD_TREE
+#define KD_DEBUG(fmt, ...) printf(fmt, ##__VA_ARGS__)
+#else
+#define KD_DEBUG(fmt, ...) /* rien */
+#endif
 
 static double geometry[4] = { 0, };
 static double mouse[4] = { 0, };
@@ -75,40 +30,10 @@ static GLuint scene_data_ssbo = 0;
 static Scene_t* scene = NULL;
 int view_perf;
 int output;
-
-// Déclarations de fonction
-KDTreeInfo_t* init_kdtree_info(int max_nodes);
-void add_node_to_kdtree_info(KDTreeInfo_t* info, KDNode_t* node);
-void free_kdtree_info(KDTreeInfo_t* info);
-KDNode_t* build_kdtree(Object_t** objects, int nb_objects, int depth, KDTreeInfo_t* info);
-void send_kdtree_to_shader(KDNodeGPU_t* kdtree_data, int num_nodes);
-void free_kdtree(KDNode_t* nodes, int root_index);
-
-// Prototype de la fonction display_kdtree
-void display_kdtree(Scene_t* scene);
-
-Object_t init_object(int type,
-                      float r, float g, float b,
-                      float x, float y, float z,
-                      float alpha, float beta, float gamma,
-                      float size_x, float size_y, float size_z,
-                      float radius,
-                      float thickness,
-                      int id) {
-
-  Object_t o = {
-    .color = {r, g, b},
-    .pos = {x, y, z},
-    .rot = {alpha, beta, gamma},
-    .size = {size_x, size_y, size_z},
-    .radius = radius,
-    .thickness = thickness,
-    .type = type,
-    .id = id
-  };
-  
-  return o;
-}
+int use_kdtree;
+int display_kdtree_shader;
+static int show_kdtree_3d = 0;  // État pour afficher ou non le KD-tree en 3D
+static GLuint kdtree_ssbo = 0;
 
 void print_object(Object_t o) {
   printf("type : %d\ncolor : %f, %f, %f\n", o.id, o.color[0], o.color[1], o.color[2]);
@@ -142,18 +67,16 @@ Scene_t* init_scene() {
     scene->kdtree_info->root = build_kdtree(obj_ptrs, nb_objects, 0, scene->kdtree_info);
     
     // Afficher le KD-tree
-    display_kdtree(scene);
+    display_kdtree(scene->kdtree_info);
 
     // Convertir le KD-tree en format GPU
-    KDNodeGPU_t* kdtree_data = malloc(sizeof(KDNodeGPU_t) * scene->kdtree_info->node_count);
-    // Remplir kdtree_data avec les données du KD-tree
-    // (Assurez-vous de copier les données correctement)
-
-    // Envoyer le KD-tree au GPU
+    KDNodeGPU_t* kdtree_data = convert_kdtree_to_gpu_format(scene->kdtree_info);
+    
+    // Envoyer les données au shader
     send_kdtree_to_shader(kdtree_data, scene->kdtree_info->node_count);
+    free(kdtree_data);
 
     free(obj_ptrs);
-    free(kdtree_data);
     return scene;
 }
 
@@ -211,6 +134,71 @@ void display(GLFWwindow* window) {
       else
         glUniform4f (uindex, width, height, 1.0, view_perf);
     }
+
+  GLint useKDTreeLoc = glGetUniformLocation(prog, "iUseKDTree");
+  if (useKDTreeLoc >= 0) {
+    glUniform1i(useKDTreeLoc, use_kdtree);
+    KD_DEBUG("iUseKDTree uniform transmis: %d\n", use_kdtree);
+  } else {
+    printf("ERREUR: L'uniform iUseKDTree n'a pas été trouvé dans le shader!\n");
+  }
+
+  GLint displayKDTreeLoc = glGetUniformLocation(prog, "iDisplayKDTree");
+  if (displayKDTreeLoc >= 0) {
+    glUniform1i(displayKDTreeLoc, display_kdtree_shader);
+    KD_DEBUG("iDisplayKDTree uniform transmis: %d\n", display_kdtree_shader);
+  } else {
+    printf("ERREUR: L'uniform iDisplayKDTree n'a pas été trouvé dans le shader!\n");
+  }
+
+  // Si l'utilisateur a activé l'affichage 3D du KD-tree
+  if (show_kdtree_3d && scene && scene->kdtree_info) {
+    // Désactiver le shader
+    glUseProgram(0);
+    
+    // Configurer la projection pour la 3D
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    gluPerspective(45.0, (double)width / (double)height, 0.1, 100.0);
+    
+    // Configurer la vue
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+    gluLookAt(5.0, 5.0, 5.0,  // Position de la caméra
+              0.0, 0.0, 0.0,  // Point regardé
+              0.0, 1.0, 0.0); // Vecteur "up"
+    
+    // Rotation de la scène pour pouvoir la voir sous différents angles
+    static float rotation = 0.0f;
+    rotation += 0.5f;  // Rotation lente
+    glRotatef(rotation, 0.0f, 1.0f, 0.0f);
+  
+    
+    // Revenir au shader pour le rendu normal
+    glUseProgram(prog);
+  }
+
+  // Réafficher le nœud racine du KD-tree pour vérifier les données
+  if (use_kdtree == 1 && kdtree_ssbo != 0) {
+    // Afficher toutes les données du KD-tree pour le débogage
+    int num_nodes = 3; // D'après vos logs précédents
+    KDNodeGPU_t* nodes = malloc(sizeof(KDNodeGPU_t) * num_nodes);
+    
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, kdtree_ssbo);
+    glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(KDNodeGPU_t) * num_nodes, nodes);
+    
+    KD_DEBUG("=== KD-tree complet envoyé au shader ===\n");
+    for (int i = 0; i < num_nodes; i++) {
+        KD_DEBUG("Nœud %d: axe=%d, pos=%.2f, gauche=%d, droite=%d\n",
+               i, nodes[i].split_axis, nodes[i].split_pos, 
+               nodes[i].left_child_index, nodes[i].right_child_index);
+    }
+    KD_DEBUG("=====================================\n");
+    
+    free(nodes);
+  }
+
+  glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, kdtree_ssbo);
 
   //uindex = glGetUniformLocation (prog, "iMouse");
   //if (uindex >= 0)
@@ -334,17 +322,21 @@ void cursor_position_callback(GLFWwindow* window, double xpos, double ypos) {
 }
 
 void keyboard_handler(GLFWwindow* window, int key, int scancode, int action, int mods) {
-  scancode = scancode;
-    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
-        glfwSetWindowShouldClose(window, GLFW_TRUE);
-    } else if ((key == GLFW_KEY_Q || key == GLFW_KEY_ESCAPE) && action == GLFW_PRESS && (mods & GLFW_MOD_CONTROL)) {
-        glfwSetWindowShouldClose(window, GLFW_TRUE);
-    } else if ((key == GLFW_KEY_F || key == GLFW_KEY_ENTER) && action == GLFW_PRESS && (mods & GLFW_MOD_ALT)) {
-        if (glfwGetWindowMonitor(window) == NULL)
-            glfwSetWindowMonitor(window, glfwGetPrimaryMonitor(), 0, 0, 800, 600, GLFW_DONT_CARE);
-        else
-            glfwSetWindowMonitor(window, NULL, 0, 0, 800, 600, GLFW_DONT_CARE);
-    }
+  (void)scancode;
+  if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
+      glfwSetWindowShouldClose(window, GLFW_TRUE);
+  } else if ((key == GLFW_KEY_Q || key == GLFW_KEY_ESCAPE) && action == GLFW_PRESS && (mods & GLFW_MOD_CONTROL)) {
+      glfwSetWindowShouldClose(window, GLFW_TRUE);
+  } else if ((key == GLFW_KEY_F || key == GLFW_KEY_ENTER) && action == GLFW_PRESS && (mods & GLFW_MOD_ALT)) {
+      if (glfwGetWindowMonitor(window) == NULL)
+          glfwSetWindowMonitor(window, glfwGetPrimaryMonitor(), 0, 0, 800, 600, GLFW_DONT_CARE);
+      else
+          glfwSetWindowMonitor(window, NULL, 0, 0, 800, 600, GLFW_DONT_CARE);
+  } else if (key == GLFW_KEY_K && action == GLFW_PRESS) {
+      // Activer/désactiver l'affichage 3D du KD-tree
+      show_kdtree_3d = !show_kdtree_3d;
+      printf("Affichage 3D du KD-tree: %s\n", show_kdtree_3d ? "activé" : "désactivé");
+  }
 }
 
 void init_glew (void) {
@@ -498,12 +490,6 @@ int compare_objects(const void* a, const void* b) {
 
 #define MAX_DEPTH 20
 
-// Structure pour représenter une boîte englobante alignée sur les axes (AABB)
-typedef struct {
-    float min[3]; // Coordonnées minimales (x, y, z)
-    float max[3]; // Coordonnées maximales (x, y, z)
-} BoundingBox_t;
-
 // Fonction pour calculer la boîte englobante d'un objet en fonction de son type
 BoundingBox_t calculate_bounding_box(Object_t* obj) {
     BoundingBox_t bbox;
@@ -656,158 +642,6 @@ BoundingBox_t calculate_bounding_box(Object_t* obj) {
     return bbox;
 }
 
-// Fonction pour construire le KD-tree avec des objets volumétriques
-KDNode_t* build_kdtree(Object_t** objects, int nb_objects, int depth, KDTreeInfo_t* info) {
-    if (nb_objects == 0 || depth >= MAX_DEPTH) return NULL;
-
-    KDNode_t* node = malloc(sizeof(KDNode_t));
-    add_node_to_kdtree_info(info, node);
-    
-    current_axis = depth % 3; // Mettre à jour l'axe de tri
-    node->split_axis = current_axis;
-
-    // Si peu d'objets, ne pas subdiviser davantage
-    if (nb_objects <= 4) { // Seuil arbitraire, ajustez selon vos besoins
-        node->split_pos = 0.0f; // Valeur arbitraire
-        node->start_index = 0;
-        node->end_index = nb_objects;
-        node->left_child_index = -1;
-        node->right_child_index = -1;
-        return node;
-    }
-
-    // Calculer les boîtes englobantes pour tous les objets
-    BoundingBox_t* bboxes = malloc(sizeof(BoundingBox_t) * nb_objects);
-    for (int i = 0; i < nb_objects; i++) {
-        bboxes[i] = calculate_bounding_box(objects[i]);
-    }
-
-    // Trier les objets en fonction de la position centrale sur l'axe actuel
-    current_axis = node->split_axis;
-    qsort(objects, nb_objects, sizeof(Object_t*), compare_objects);
-    
-    // Calculer la médiane des positions centrales
-    int median_index = nb_objects / 2;
-    node->split_pos = objects[median_index]->pos[current_axis];
-    
-    // Créer des listes pour les objets à gauche, à droite et chevauchant le plan
-    Object_t** left_objects = malloc(sizeof(Object_t*) * nb_objects);
-    Object_t** right_objects = malloc(sizeof(Object_t*) * nb_objects);
-    Object_t** overlap_objects = malloc(sizeof(Object_t*) * nb_objects);
-    
-    int left_count = 0;
-    int right_count = 0;
-    int overlap_count = 0;
-    
-    // Répartir les objets selon leur position par rapport au plan de séparation
-    for (int i = 0; i < nb_objects; i++) {
-        BoundingBox_t bbox = bboxes[i];
-        if (bbox.max[current_axis] <= node->split_pos) {
-            // Objet entièrement à gauche
-            left_objects[left_count++] = objects[i];
-        } else if (bbox.min[current_axis] >= node->split_pos) {
-            // Objet entièrement à droite
-            right_objects[right_count++] = objects[i];
-        } else {
-            // Objet chevauchant le plan
-            overlap_objects[overlap_count++] = objects[i];
-        }
-    }
-    
-    // Si la distribution est très déséquilibrée, ajuster
-    if (left_count == 0 || right_count == 0) {
-        // Répartir les objets de chevauchement
-        for (int i = 0; i < overlap_count; i++) {
-            if (i < overlap_count / 2) {
-                left_objects[left_count++] = overlap_objects[i];
-            } else {
-                right_objects[right_count++] = overlap_objects[i];
-            }
-        }
-        overlap_count = 0;
-    }
-    
-    // Libérer les boîtes englobantes
-    free(bboxes);
-    
-    // Traiter les objets chevauchants en les ajoutant aux deux sous-arbres
-    for (int i = 0; i < overlap_count; i++) {
-        left_objects[left_count++] = overlap_objects[i];
-        right_objects[right_count++] = overlap_objects[i];
-    }
-    
-    // Construire récursivement les sous-arbres
-    KDNode_t* left_child = NULL;
-    KDNode_t* right_child = NULL;
-    
-    if (left_count > 0) {
-        left_child = build_kdtree(left_objects, left_count, depth + 1, info);
-    }
-    
-    if (right_count > 0) {
-        right_child = build_kdtree(right_objects, right_count, depth + 1, info);
-    }
-    
-    // Assigner les indices des enfants
-    if (left_child) {
-        node->left_child_index = info->node_count - 1; // Indice relatif
-    } else {
-        node->left_child_index = -1;
-    }
-    
-    if (right_child) {
-        node->right_child_index = info->node_count - 1; // Indice relatif
-    } else {
-        node->right_child_index = -1;
-    }
-    
-    // Stocker les informations des objets
-    node->start_index = 0;
-    node->end_index = nb_objects;
-    
-    // Libérer les listes temporaires
-    free(left_objects);
-    free(right_objects);
-    free(overlap_objects);
-    
-    return node;
-}
-
-void send_kdtree_to_shader(KDNodeGPU_t* kdtree_data, int num_nodes) {
-    GLuint kdtree_ssbo;
-    glGenBuffers(1, &kdtree_ssbo);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, kdtree_ssbo);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(KDNodeGPU_t) * num_nodes, kdtree_data, GL_STATIC_DRAW);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, kdtree_ssbo);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
-}
-
-void cleanup_buffers() {
-    if (scene_data_ssbo != 0) {
-        glDeleteBuffers(1, &scene_data_ssbo);
-    }
-    // Ajoutez d'autres buffers à supprimer si nécessaire
-}
-
-void free_kdtree(KDNode_t* nodes, int root_index) {
-    // Fonction simplifiée: ne fait rien pour éviter la boucle infinie
-    (void)nodes; // Pour éviter l'avertissement de paramètre non utilisé
-    (void)root_index; // Pour éviter l'avertissement de paramètre non utilisé
-    return;
-}
-
-// Fonction pour obtenir le nom du type d'objet
-const char* get_object_type_name(int type) {
-    switch (type) {
-        case 0: return "Sphère";
-        case 1: return "Tore";
-        case 2: return "Cylindre";
-        case 3: return "Pavé droit";
-        case 4: return "Plan infini";
-        default: return "Type inconnu";
-    }
-}
-
 // Fonction pour afficher les caractéristiques d'un objet selon son type
 void print_object_details(Object_t* obj) {
     printf("      %s (ID: %d): ", get_object_type_name(obj->type), obj->id);
@@ -847,140 +681,24 @@ void print_object_details(Object_t* obj) {
     printf("\n");
 }
 
-// Fonction pour afficher le contenu du KD-tree avec indentation
-void print_kdtree(KDTreeInfo_t* tree_info, int node_index, int depth, Scene_t* scene) {
-    if (node_index < 0 || node_index >= tree_info->node_count) {
-        return;
+void send_kdtree_to_shader(KDNodeGPU_t* kdtree_data, int num_nodes) {
+    if (kdtree_ssbo == 0) {
+        glGenBuffers(1, &kdtree_ssbo);
     }
-
-    KDNode_t* node = tree_info->all_nodes[node_index];
-    
-    // Créer l'indentation en fonction de la profondeur
-    char indent[100] = "";
-    for (int i = 0; i < depth; i++) {
-        strcat(indent, "  ");
-    }
-    
-    // Déterminer la lettre de l'axe (x, y, z)
-    char axis_letter = 'x';
-    if (node->split_axis == 1) {
-        axis_letter = 'y';
-    } else if (node->split_axis == 2) {
-        axis_letter = 'z';
-    }
-    
-    // Afficher les informations du nœud avec l'axe en lettre
-    printf("%sNœud[%d]: axe=%c, pos=%.2f, objets=%d-%d\n", 
-           indent, node_index, axis_letter, node->split_pos, 
-           node->start_index, node->end_index);
-    
-    // Afficher les objets contenus dans ce nœud
-    printf("%s  Objets dans ce nœud:\n", indent);
-    
-    // Parcourir les objets associés à ce nœud
-    // Note: Cette partie dépend de comment les objets sont associés aux nœuds dans votre KD-tree
-    // Si le nœud contient des indices directs, utilisez ces indices
-    // Sinon, parcourez tous les objets et vérifiez s'ils appartiennent à ce nœud
-    
-    for (int i = 0; i < scene->nb; i++) {
-        // Vérifier si l'objet appartient à ce nœud en utilisant sa boîte englobante
-        Object_t* obj = &scene->obj[i];
-        BoundingBox_t bbox = calculate_bounding_box(obj);
-        
-        // Si l'objet chevauche le plan de séparation, il est dans ce nœud
-        if (node->split_axis == 0) {
-            if (bbox.min[0] <= node->split_pos && bbox.max[0] >= node->split_pos) {
-                print_object_details(obj);
-            }
-        } else if (node->split_axis == 1) {
-            if (bbox.min[1] <= node->split_pos && bbox.max[1] >= node->split_pos) {
-                print_object_details(obj);
-            }
-        } else {
-            if (bbox.min[2] <= node->split_pos && bbox.max[2] >= node->split_pos) {
-                print_object_details(obj);
-            }
-        }
-    }
-    
-    // Calculer les indices des enfants
-    int left_index = -1, right_index = -1;
-    
-    if (node->left_child_index >= 0) {
-        left_index = node_index + node->left_child_index;
-        printf("%s  Gauche -> Nœud[%d]\n", indent, left_index);
-    } else {
-        printf("%s  Gauche -> NULL\n", indent);
-    }
-    
-    if (node->right_child_index >= 0) {
-        right_index = node_index + node->right_child_index;
-        printf("%s  Droite -> Nœud[%d]\n", indent, right_index);
-    } else {
-        printf("%s  Droite -> NULL\n", indent);
-    }
-    
-    // Afficher récursivement les enfants
-    if (left_index >= 0) {
-        print_kdtree(tree_info, left_index, depth + 1, scene);
-    }
-    if (right_index >= 0) {
-        print_kdtree(tree_info, right_index, depth + 1, scene);
-    }
-}
-
-// Fonction principale pour afficher le KD-tree (mise à jour pour passer scene)
-void display_kdtree(Scene_t* scene) {
-    if (!scene || !scene->kdtree_info || !scene->kdtree_info->root) {
-        printf("KD-tree vide ou non initialisé\n");
-        return;
-    }
-    
-    printf("=== Structure du KD-tree ===\n");
-    printf("Nombre total de nœuds: %d\n", scene->kdtree_info->node_count);
-    
-    // Trouver l'index du nœud racine
-    int root_index = 0;  // Généralement, la racine est le premier nœud
-    
-    print_kdtree(scene->kdtree_info, root_index, 0, scene);
-    printf("===========================\n");
-}
-
-// Fonction pour initialiser l'info du KD-tree
-KDTreeInfo_t* init_kdtree_info(int max_nodes) {
-    KDTreeInfo_t* info = malloc(sizeof(KDTreeInfo_t));
-    info->root = NULL;
-    info->all_nodes = malloc(sizeof(KDNode_t*) * max_nodes);
-    info->node_count = 0;
-    info->max_nodes = max_nodes;
-    return info;
-}
-
-// Fonction pour ajouter un nœud à l'info du KD-tree
-void add_node_to_kdtree_info(KDTreeInfo_t* info, KDNode_t* node) {
-    if (info->node_count < info->max_nodes) {
-        info->all_nodes[info->node_count++] = node;
-    }
-}
-
-// Fonction pour libérer l'info du KD-tree
-void free_kdtree_info(KDTreeInfo_t* info) {
-    if (info) {
-        for (int i = 0; i < info->node_count; i++) {
-            free(info->all_nodes[i]);
-        }
-        free(info->all_nodes);
-        free(info);
-    }
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, kdtree_ssbo);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(KDNodeGPU_t) * num_nodes, kdtree_data, GL_STATIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, kdtree_ssbo);
 }
 
 int main (int argc, char* argv[]) {
-  if(argc == 3) {
+  if(argc == 5) {
     view_perf = atoi(argv[1]);
     output = atoi(argv[2]);
+    use_kdtree = atoi(argv[3]);
+    display_kdtree_shader = atoi(argv[4]);
   }
   else {
-    printf("erreur :\nLa commande doit etre de la forme :\n./shadertoy.bin [n1] [n2]\n avec n1 et n2 = 0 ou 1. n1 signifiant la vue des performances et n2 si on doit enregistrer une image.\n");
+    printf("erreur :\nLa commande doit etre de la forme :\n./shadertoy.bin [n1] [n2] [n3]\n avec n1, n2 et n3 = 0 ou 1. n1 signifiant la vue des performances, n2 si on doit enregistrer une image, et n3 si on utilise les KD-trees.\n");
     return 0;
   }
   
@@ -1057,6 +775,5 @@ int main (int argc, char* argv[]) {
   glfwDestroyWindow(window);
   glfwTerminate();
   free_scene(scene);
-  cleanup_buffers();
   return 0;
 }
