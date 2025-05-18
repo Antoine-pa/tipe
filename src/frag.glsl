@@ -66,7 +66,7 @@ const float PI = 3.141592;
 const float ZOOM = 1.0;
 
 // Ajouter cet uniform avec les autres au début du fichier
-uniform int iUseKDTree;           // 1 si on utilise les KD-trees, 0 sinon
+uniform int iAlgo;           // 0 : algo classique | 1 : algo avec KD-tree | 2 : algo avec raytracing
 
 // Ajoutez ces constantes au début du fichier
 const vec3 KD_PLANE_COLOR_X = vec3(1.0, 0.3, 0.3); // Rouge pour l'axe X
@@ -448,7 +448,7 @@ vec4 scene(vec3 p) {
     // Trouver l'objet le plus proche
     vec4 objResult;
     
-    if (iUseKDTree == 1) {
+    if (iAlgo == 1) {
         objResult = traverseKDTree(p, normalize(p));
     } else {
         objResult = colDist(p, iObjects[0]);
@@ -479,7 +479,7 @@ Data march(vec3 rayOrigin, vec3 rayDirection) {
             data.steps = i;
             
             // Désactiver la visualisation des plans ici - elle se fait déjà dans mainImage
-            // if (iUseKDTree == 1) {
+            // if (iAlgo == 1) {
             //     vec4 planes = visualizeKDPlanes(rayOrigin, rayDirection, d);
             //     if (planes.a > 0.1) {
             //         data.color = planes.rgb;
@@ -494,7 +494,7 @@ Data march(vec3 rayOrigin, vec3 rayDirection) {
             data.steps = i;
             
             // Visualiser les plans du KD-tree si activé
-            if (iUseKDTree == 1 && iDisplayKDTree == 1) {
+            if (iAlgo == 1 && iDisplayKDTree == 1) {
                 vec4 planes = visualizeKDPlanes(rayOrigin, rayDirection, MAX_DIST, d);
                 data.color = mix(BACKGROUND, planes.rgb, planes.a);
             }

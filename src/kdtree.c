@@ -289,4 +289,195 @@ void print_kdtree(KDTreeInfo_t* tree_info, int node_index, int depth, Scene_t* s
             }
         }
     }
+}
+
+// Fonction pour calculer la boîte englobante d'un objet en fonction de son type
+BoundingBox_t calculate_bounding_box(Object_t* obj) {
+    BoundingBox_t bbox;
+    
+    // Initialiser les valeurs min/max avec la position de l'objet
+    for (int i = 0; i < 3; i++) {
+        bbox.min[i] = obj->pos[i];
+        bbox.max[i] = obj->pos[i];
+    }
+    
+    // Ajuster en fonction du type d'objet
+    switch (obj->type) {
+        case 0: // Sphère
+            // Étendre la boîte de "radius" dans toutes les directions
+            for (int i = 0; i < 3; i++) {
+                bbox.min[i] -= obj->radius;
+                bbox.max[i] += obj->radius;
+            }
+            break;
+            
+        case 1: // Tore
+            {
+                // Pour un tore, l'extension maximale est le rayon principal + rayon interne
+                float total_radius = obj->radius + obj->thickness;
+                
+                // Si le tore est aligné avec les axes par défaut (XZ)
+                if (fabs(obj->rot[0]) < 0.001 && fabs(obj->rot[1]) < 0.001 && fabs(obj->rot[2]) < 0.001) {
+                    // Extension dans le plan XZ
+                    bbox.min[0] -= total_radius;
+                    bbox.min[2] -= total_radius;
+                    bbox.max[0] += total_radius;
+                    bbox.max[2] += total_radius;
+                    
+                    // Extension en Y limitée au rayon interne
+                    bbox.min[1] -= obj->thickness;
+                    bbox.max[1] += obj->thickness;
+                } else {
+                    // Pour une rotation arbitraire, utiliser une approche conservatrice
+                    for (int i = 0; i < 3; i++) {
+                        bbox.min[i] -= total_radius;
+                        bbox.max[i] += total_radius;
+                    }
+                }
+            }
+            break;
+            
+        case 2: // Cylindre
+            {
+                // Extraire la hauteur et le rayon du cylindre
+                float height = obj->size[0];
+                float radius = obj->size[1];
+                
+                // Si le cylindre est aligné avec l'axe Y par défaut
+                if (fabs(obj->rot[0]) < 0.001 && fabs(obj->rot[2]) < 0.001) {
+                    // Extension en Y basée sur la hauteur
+                    bbox.min[1] -= height / 2.0f;
+                    bbox.max[1] += height / 2.0f;
+                    
+                    // Extension en X et Z basée sur le rayon
+                    bbox.min[0] -= radius;
+                    bbox.min[2] -= radius;
+                    bbox.max[0] += radius;
+                    bbox.max[2] += radius;
+                } else {
+                    // Pour une rotation arbitraire, utiliser une approche conservatrice
+                    float max_extent = fmax(height / 2.0f, radius);
+                    for (int i = 0; i < 3; i++) {
+                        bbox.min[i] -= max_extent;
+                        bbox.max[i] += max_extent;
+                    }
+                }
+            }
+            break;
+            
+        case 3: // Pavé droit
+            {
+                // Extraire les dimensions du pavé
+                float x_size = obj->size[0];
+                float y_size = obj->size[1];
+                float z_size = obj->size[2];
+                
+                // Si le pavé est aligné avec les axes (pas de rotation)
+                if (fabs(obj->rot[0]) < 0.001 && fabs(obj->rot[1]) < 0.001 && fabs(obj->rot[2]) < 0.001) {
+                    bbox.min[0] -= x_size / 2.0f;
+                    bbox.min[1] -= y_size / 2.0f;
+                    bbox.min[2] -= z_size / 2.0f;
+                    bbox.max[0] += x_size / 2.0f;
+                    bbox.max[1] += y_size / 2.0f;
+                    bbox.max[2] += z_size / 2.0f;
+                } else {
+                    // Pour une rotation arbitraire, utiliser une approche conservatrice
+                    float max_extent = sqrt(x_size*x_size + y_size*y_size + z_size*z_size) / 2.0f;
+                    for (int i = 0; i < 3; i++) {
+                        bbox.min[i] -= max_extent;
+                        bbox.max[i] += max_extent;
+                    }
+                }
+                
+                // Ajouter le facteur de lissage/arrondi
+                if (obj->thickness > 0) {
+                    for (int i = 0; i < 3; i++) {
+                        bbox.min[i] -= obj->thickness;
+                        bbox.max[i] += obj->thickness;
+                    }
+                }
+            }
+            break;
+            
+        case 4: // Plan infini
+            {
+                // Pour un plan, utiliser une boîte très grande dans la direction du plan
+                // et fine dans la direction de la normale
+                
+                // Normaliser le vecteur normal
+                float norm = sqrt(obj->rot[0]*obj->rot[0] + obj->rot[1]*obj->rot[1] + obj->rot[2]*obj->rot[2]);
+                float nx = obj->rot[0] / norm;
+                float ny = obj->rot[1] / norm;
+                float nz = obj->rot[2] / norm;
+                
+                // Définir une grande valeur pour l'extension du plan
+                float large_value = 1000.0f; // Ajuster selon vos besoins
+                
+                // Étendre légèrement dans la direction de la normale
+                float small_value = 0.01f;
+                
+                for (int i = 0; i < 3; i++) {
+                    if (i == 0) {
+                        bbox.min[i] = fabs(nx) > 0.9f ? obj->pos[i] - small_value : obj->pos[i] - large_value;
+                        bbox.max[i] = fabs(nx) > 0.9f ? obj->pos[i] + small_value : obj->pos[i] + large_value;
+                    } else if (i == 1) {
+                        bbox.min[i] = fabs(ny) > 0.9f ? obj->pos[i] - small_value : obj->pos[i] - large_value;
+                        bbox.max[i] = fabs(ny) > 0.9f ? obj->pos[i] + small_value : obj->pos[i] + large_value;
+                    } else {
+                        bbox.min[i] = fabs(nz) > 0.9f ? obj->pos[i] - small_value : obj->pos[i] - large_value;
+                        bbox.max[i] = fabs(nz) > 0.9f ? obj->pos[i] + small_value : obj->pos[i] + large_value;
+                    }
+                }
+            }
+            break;
+            
+        default:
+            // Pour les autres types non spécifiés, utiliser une marge par défaut
+            for (int i = 0; i < 3; i++) {
+                bbox.min[i] -= 1.0f;
+                bbox.max[i] += 1.0f;
+            }
+            break;
+    }
+    
+    return bbox;
+}
+
+// Fonction pour afficher les caractéristiques d'un objet selon son type
+void print_object_details(Object_t* obj) {
+    printf("      %s (ID: %d): ", get_object_type_name(obj->type), obj->id);
+    
+    switch (obj->type) {
+        case 0: // Sphère
+            printf("Pos(%.2f, %.2f, %.2f), Rayon=%.2f", 
+                   obj->pos[0], obj->pos[1], obj->pos[2], obj->radius);
+            break;
+        case 1: // Tore
+            printf("Pos(%.2f, %.2f, %.2f), Rayon=%.2f, Épaisseur=%.2f, Normal(%.2f, %.2f, %.2f)", 
+                   obj->pos[0], obj->pos[1], obj->pos[2], 
+                   obj->radius, obj->thickness, 
+                   obj->rot[0], obj->rot[1], obj->rot[2]);
+            break;
+        case 2: // Cylindre
+            printf("Pos(%.2f, %.2f, %.2f), Hauteur=%.2f, Rayon=%.2f, Orient(%.2f, %.2f, %.2f)", 
+                   obj->pos[0], obj->pos[1], obj->pos[2], 
+                   obj->size[0], obj->size[1], 
+                   obj->rot[0], obj->rot[1], obj->rot[2]);
+            break;
+        case 3: // Pavé droit
+            printf("Pos(%.2f, %.2f, %.2f), Dim(%.2f, %.2f, %.2f), Orient(%.2f, %.2f, %.2f)", 
+                   obj->pos[0], obj->pos[1], obj->pos[2], 
+                   obj->size[0], obj->size[1], obj->size[2], 
+                   obj->rot[0], obj->rot[1], obj->rot[2]);
+            break;
+        case 4: // Plan infini
+            printf("Pos(%.2f, %.2f, %.2f), Normal(%.2f, %.2f, %.2f)", 
+                   obj->pos[0], obj->pos[1], obj->pos[2], 
+                   obj->rot[0], obj->rot[1], obj->rot[2]);
+            break;
+        default:
+            printf("Caractéristiques inconnues");
+            break;
+    }
+    printf("\n");
 } 
