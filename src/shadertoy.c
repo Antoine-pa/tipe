@@ -32,7 +32,6 @@ int view_perf;
 int output;
 int algo;
 int display_kdtree_shader;
-static int show_kdtree_3d = 0;  // État pour afficher ou non le KD-tree en 3D
 static GLuint kdtree_ssbo = 0;
 
 void print_object(Object_t o) {
@@ -55,28 +54,22 @@ Scene_t* init_scene() {
     //objs[5] = init_object(4, 0.25, 0.45, 0.5, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 5);
     scene->obj = objs;
     scene->nb = nb_objects;
+    if(algo == 1) {
+      // Construire le KD-tree
+      Object_t** obj_ptrs = malloc(sizeof(Object_t*) * nb_objects);
+      for (int i = 0; i < nb_objects; i++) {
+          obj_ptrs[i] = &objs[i];
+      }
+      
+      // Initialiser l'info du KD-tree
+      scene->kdtree_info = init_kdtree_info(100);
+      scene->kdtree_info->root = build_kdtree(obj_ptrs, nb_objects, 0, scene->kdtree_info);
+      
+      // Afficher le KD-tree
+      display_kdtree(scene->kdtree_info);
 
-    // Construire le KD-tree
-    Object_t** obj_ptrs = malloc(sizeof(Object_t*) * nb_objects);
-    for (int i = 0; i < nb_objects; i++) {
-        obj_ptrs[i] = &objs[i];
+      free(obj_ptrs);
     }
-    
-    // Initialiser l'info du KD-tree
-    scene->kdtree_info = init_kdtree_info(100);
-    scene->kdtree_info->root = build_kdtree(obj_ptrs, nb_objects, 0, scene->kdtree_info);
-    
-    // Afficher le KD-tree
-    display_kdtree(scene->kdtree_info);
-
-    // Convertir le KD-tree en format GPU
-    KDNodeGPU_t* kdtree_data = convert_kdtree_to_gpu_format(scene->kdtree_info);
-    
-    // Envoyer les données au shader
-    send_kdtree_to_shader(kdtree_data, scene->kdtree_info->node_count);
-    free(kdtree_data);
-
-    free(obj_ptrs);
     return scene;
 }
 
@@ -135,9 +128,9 @@ void display(GLFWwindow* window) {
         glUniform4f (uindex, width, height, 1.0, view_perf);
     }
 
-  GLint useKDTreeLoc = glGetUniformLocation(prog, "iAlgo");
-  if (useKDTreeLoc >= 0) {
-    glUniform1i(useKDTreeLoc, algo);
+  GLint useAlgoLoc = glGetUniformLocation(prog, "iAlgo");
+  if (useAlgoLoc >= 0) {
+    glUniform1i(useAlgoLoc, algo);
     KD_DEBUG("iAlgo uniform transmis: %d\n", algo);
   } else {
     printf("ERREUR: L'uniform iAlgo n'a pas été trouvé dans le shader!\n");
@@ -151,54 +144,6 @@ void display(GLFWwindow* window) {
     printf("ERREUR: L'uniform iDisplayKDTree n'a pas été trouvé dans le shader!\n");
   }
 
-  // Si l'utilisateur a activé l'affichage 3D du KD-tree
-  if (show_kdtree_3d && scene && scene->kdtree_info) {
-    // Désactiver le shader
-    glUseProgram(0);
-    
-    // Configurer la projection pour la 3D
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-    gluPerspective(45.0, (double)width / (double)height, 0.1, 100.0);
-    
-    // Configurer la vue
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
-    gluLookAt(5.0, 5.0, 5.0,  // Position de la caméra
-              0.0, 0.0, 0.0,  // Point regardé
-              0.0, 1.0, 0.0); // Vecteur "up"
-    
-    // Rotation de la scène pour pouvoir la voir sous différents angles
-    static float rotation = 0.0f;
-    rotation += 0.5f;  // Rotation lente
-    glRotatef(rotation, 0.0f, 1.0f, 0.0f);
-  
-    
-    // Revenir au shader pour le rendu normal
-    glUseProgram(prog);
-  }
-
-  // Réafficher le nœud racine du KD-tree pour vérifier les données
-  if (algo == 1 && kdtree_ssbo != 0) {
-    // Afficher toutes les données du KD-tree pour le débogage
-    int num_nodes = 3; // D'après vos logs précédents
-    KDNodeGPU_t* nodes = malloc(sizeof(KDNodeGPU_t) * num_nodes);
-    
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, kdtree_ssbo);
-    glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(KDNodeGPU_t) * num_nodes, nodes);
-    
-    KD_DEBUG("=== KD-tree complet envoyé au shader ===\n");
-    for (int i = 0; i < num_nodes; i++) {
-        KD_DEBUG("Nœud %d: axe=%d, pos=%.2f, gauche=%d, droite=%d\n",
-               i, nodes[i].split_axis, nodes[i].split_pos, 
-               nodes[i].left_child_index, nodes[i].right_child_index);
-    }
-    KD_DEBUG("=====================================\n");
-    
-    free(nodes);
-  }
-
-  glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, kdtree_ssbo);
 
   //uindex = glGetUniformLocation (prog, "iMouse");
   //if (uindex >= 0)
@@ -332,10 +277,6 @@ void keyboard_handler(GLFWwindow* window, int key, int scancode, int action, int
           glfwSetWindowMonitor(window, glfwGetPrimaryMonitor(), 0, 0, 800, 600, GLFW_DONT_CARE);
       else
           glfwSetWindowMonitor(window, NULL, 0, 0, 800, 600, GLFW_DONT_CARE);
-  } else if (key == GLFW_KEY_K && action == GLFW_PRESS) {
-      // Activer/désactiver l'affichage 3D du KD-tree
-      show_kdtree_3d = !show_kdtree_3d;
-      printf("Affichage 3D du KD-tree: %s\n", show_kdtree_3d ? "activé" : "désactivé");
   }
 }
 
@@ -426,23 +367,30 @@ GLFWwindow* init_glfw_window() {
 }
 
 void load_scene() {
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, scene_data_ssbo);
-
-    glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, scene->nb * sizeof(Object_t), scene->obj);
-
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+  glBindBuffer(GL_SHADER_STORAGE_BUFFER, scene_data_ssbo);
+  glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, scene->nb * sizeof(Object_t), scene->obj);
+  glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 }
 
 
 void glSendData() {
     if (scene_data_ssbo == 0) {  
         glGenBuffers(1, &scene_data_ssbo);
-    }
+    }      
 
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, scene_data_ssbo);
     glBufferData(GL_SHADER_STORAGE_BUFFER, scene->nb * sizeof(Object_t), NULL, GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, scene_data_ssbo);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+    
+    if (algo == 1) {
+      KDNodeGPU_t* kdtree_data = convert_kdtree_to_gpu_format(scene->kdtree_info);
+      // Envoyer les données au shader
+      int num_nodes = 3;
+      send_kdtree_to_shader(kdtree_data, num_nodes);
+      free(kdtree_data);
+    }
+
     load_scene();
 }
 
@@ -477,20 +425,6 @@ void saveFramebuffer(const char* filename, int width, int height) {
   free(flippedPixels);
 }
 
-int current_axis; // Variable globale pour stocker l'axe de tri
-
-// Fonction de comparaison pour qsort
-int compare_objects(const void* a, const void* b) {
-    const Object_t* objA = *(const Object_t**)a;
-    const Object_t* objB = *(const Object_t**)b;
-    if (objA->pos[current_axis] < objB->pos[current_axis]) return -1;
-    if (objA->pos[current_axis] > objB->pos[current_axis]) return 1;
-    return 0;
-}
-
-#define MAX_DEPTH 20
-
-
 
 void send_kdtree_to_shader(KDNodeGPU_t* kdtree_data, int num_nodes) {
     if (kdtree_ssbo == 0) {
@@ -509,7 +443,7 @@ int main (int argc, char* argv[]) {
     display_kdtree_shader = atoi(argv[4]);
   }
   else {
-    printf("erreur :\nLa commande doit etre de la forme :\n./shadertoy.bin [n1] [n2] [n3]\n avec n1, n2 et n3 = 0 ou 1. n1 signifiant la vue des performances, n2 si on doit enregistrer une image, et n3 si on utilise les KD-trees.\n");
+    printf("erreur :\nLa commande doit etre de la forme :\n./shadertoy.bin [n1] [n2] [n3] [n4]\n avec n1, n2, n4 = 0 ou 1, n3 = 0, 1 ou 2. n1 signifiant la vue des performances, n2 si on doit enregistrer une image, n3 l'algorithme utilisé et n4 si on affiche les enveloppes.\n");
     return 0;
   }
   

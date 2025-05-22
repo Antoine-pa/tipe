@@ -52,4 +52,8 @@ void render_kdtree_node(KDTreeInfo_t* tree_info, int node_index, float min[3], f
 // Fonction de conversion pour l'envoi au GPU
 KDNodeGPU_t* convert_kdtree_to_gpu_format(KDTreeInfo_t* kdtree_info);
 
+// Nouvelles fonctions déplacées de shadertoy.c
+BoundingBox_t calculate_bounding_box(Object_t* obj);
+void print_object_details(Object_t* obj);
+
 #endif // KDTREE_H 
