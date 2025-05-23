@@ -289,7 +289,7 @@ void print_kdtree(KDTreeInfo_t* tree_info, int node_index, int depth, Scene_t* s
             }
         }
     }
-}
+} 
 
 // Fonction pour calculer la boîte englobante d'un objet en fonction de son type
 BoundingBox_t calculate_bounding_box(Object_t* obj) {

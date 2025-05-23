@@ -46,6 +46,12 @@ struct Data
   int steps;
 };
 
+// Structure pour stocker les intersections
+struct Intersections {
+    int count;        // Nombre d'intersections (0, 1 ou 2)
+    float t[2];       // Distances d'intersection le long du rayon
+};
+
 //raymarcher
 const float MAX_DIST = 20.0;
 const int MAX_STEPS = 100;
@@ -174,6 +180,118 @@ vec3 color_steps(int nb_steps, int max_steps) {
     return vec3(float(nb_steps)/(float(max_steps)));
 }
 
+// Fonction pour calculer une sphère englobante d'un objet
+vec4 compute_bounding_sphere(Object obj) {
+    vec4 result;
+    
+    // Le centre est toujours la position de l'objet
+    result.rgb = obj.pos;
+    
+    // Calcul du rayon selon le type d'objet
+    switch (obj.type) {
+        case 0: // Sphère
+            // Le rayon de la sphère englobante est simplement le rayon de la sphère
+            result.a = obj.radius;
+            break;
+            
+        case 1: // Tore
+            // Pour un tore, le rayon est la somme du rayon principal et de l'épaisseur
+            result.a = obj.radius + obj.thickness;
+            break;
+            
+        case 2: // Cylindre
+            {
+                // Pour un cylindre, le rayon de la sphère englobante est la racine carrée de
+                // (rayon du cylindre)² + (hauteur/2)²
+                float height = obj.size.x;
+                float radius = obj.size.y;
+                result.a = sqrt((height * 0.5) * (height * 0.5) + radius * radius);
+                
+                // Ajouter l'arrondi si présent
+                if (obj.thickness > 0.0) {
+                    result.a += obj.thickness;
+                }
+            }
+            break;
+            
+        case 3: // Box
+            {
+                // Pour une boîte, le rayon de la sphère englobante est la longueur de la diagonale
+                // Si obj.size est la demi-taille de la boîte, alors la diagonale complète est 
+                // simplement la longueur du vecteur obj.size
+                result.a = length(obj.size);
+                
+                // Ajouter l'arrondi si présent
+                if (obj.thickness > 0.0) {
+                    result.a += obj.thickness * 0.1; // L'arrondi est appliqué comme obj.thickness * 0.1 dans Box()
+                }
+            }
+            break;
+            
+        case 4: // Plan
+        default:
+            // Pour un plan infini, on ne peut pas vraiment définir une sphère englobante finie
+            // On va donc utiliser une très grande valeur
+            result.a = 1000.0;
+            break;
+    }
+    
+    return result;
+}
+
+// Fonction pour calculer les intersections entre un rayon et une sphère
+Intersections raytracing_sphere(vec3 sphereCenter, float sphereRadius, vec3 rayOrigin, vec3 rayDirection) {
+    Intersections result;
+    result.count = 0;
+    
+    // Normaliser la direction du rayon pour s'assurer qu'elle est unitaire
+    vec3 rayDirNormalized = normalize(rayDirection);
+    
+    // Vecteur reliant l'origine du rayon au centre de la sphère
+    vec3 oc = rayOrigin - sphereCenter;
+    
+    // Coefficients de l'équation quadratique at² + bt + c = 0
+    float a = dot(rayDirNormalized, rayDirNormalized);  // Toujours 1 si la direction est normalisée
+    float b = 2.0 * dot(oc, rayDirNormalized);
+    float c = dot(oc, oc) - sphereRadius * sphereRadius;
+    
+    // Calculer le discriminant
+    float discriminant = b * b - 4.0 * a * c;
+    
+    if (discriminant >= 0.0) { // Intersection réelle ou tangente
+        float sqrtDiscriminant = sqrt(discriminant);
+        
+        float t0 = (-b - sqrtDiscriminant) / (2.0 * a);
+        float t1 = (-b + sqrtDiscriminant) / (2.0 * a);
+
+        // Stocker les intersections valides (t > 0) et distinctes
+        if (t0 > 0.0001) { // Utiliser un petit epsilon pour s'assurer que c'est devant
+            result.t[result.count++] = t0;
+        }
+        
+        if (t1 > 0.0001) {
+            bool add_t1 = true;
+            if (result.count > 0) { // Vérifier si t1 est différent de t0 déjà ajouté
+                if (abs(t1 - result.t[0]) < EPSILON) {
+                    add_t1 = false;
+                }
+            }
+            if (add_t1 && result.count < 2) {
+                 result.t[result.count++] = t1;
+            }
+        }
+
+        // S'assurer que t[0] est la plus petite intersection si deux sont trouvées
+        if (result.count == 2 && result.t[0] > result.t[1]) {
+            float temp = result.t[0];
+            result.t[0] = result.t[1];
+            result.t[1] = temp;
+        }
+    }
+    
+    return result;
+}
+
 // Fonction pour déterminer si un rayon intersecte une boîte englobante (version plus robuste)
 bool rayIntersectsAABB(vec3 rayOrigin, vec3 rayDir, vec3 boxMin, vec3 boxMax, float maxDist) {
     // Ajouter une petite marge pour la stabilité numérique
@@ -218,8 +336,8 @@ Data traverseKDTree(vec3 rayOrigin, vec3 rayDirection) {
     stackPtr++;
     
     // Array pour marquer quels objets ont été testés
-    bool tested[16]; // Supposant que nous n'avons pas plus de 16 objets
-    for (int i = 0; i < 16; i++) {
+    bool tested[nbObjects]; 
+    for (int i = 0; i < nbObjects; i++) {
         tested[i] = false;
     }
     
@@ -273,7 +391,7 @@ Data traverseKDTree(vec3 rayOrigin, vec3 rayDirection) {
                 
                 // Marquer l'objet comme "potentiellement traité par le KD-tree"
                 // Cela sert pour la passe de sécurité finale.
-                if (iObjects[i].id < 16) {
+                if (iObjects[i].id < nbObjects) {
                     tested[iObjects[i].id] = true;
                 }
                 
@@ -314,7 +432,7 @@ Data traverseKDTree(vec3 rayOrigin, vec3 rayDirection) {
                 // Vérifier si le rayon intersecte la boîte englobante de l'objet
                 if (isClose || rayIntersectsAABB(rayOrigin, rayDirection, objMin, objMax, data.d)) {
                     // Maintenant faire le test de collision précis
-                    vec4 o = colDist(rayOrigin, iObjects[i]);
+            vec4 o = colDist(rayOrigin, iObjects[i]);
                     colDistCalls++;
                     
                     if (o.a < data.d) {
@@ -423,7 +541,7 @@ Data traverseKDTree(vec3 rayOrigin, vec3 rayDirection) {
         bool forceTest = distToObject < 3.0;
         
         // Si l'objet n'a pas été testé dans la première passe ou est forcé
-        if (forceTest || (iObjects[i].id < 16 && !tested[iObjects[i].id])) {
+        if (forceTest || (iObjects[i].id < nbObjects && !tested[iObjects[i].id])) {
             vec4 o = colDist(rayOrigin, iObjects[i]);
             colDistCalls++;
             if (o.a < data.d) {
@@ -446,7 +564,7 @@ struct KDPlane {
 };
 
 // Définir une constante pour le nombre maximum de plans à visualiser
-const int MAX_PLANES = 16;
+const int MAX_PLANES = nbObjects;
 
 // Remplacer la fonction récursive par une version itérative
 void collectKDPlanes(inout KDPlane planes[MAX_PLANES], inout int planeCount) {
@@ -683,12 +801,34 @@ vec4 visualizeKDPlanes(vec3 rayOrigin, vec3 rayDirection, float maxDist, float o
 }
 
 // Modifier la fonction scene pour utiliser le type Data
-Data scene(vec3 p) {
+Data scene(vec3 p, bool initialRayHits[nbObjects]) {
     Data result;
     
     if (iAlgo == 1) {
         // Utiliser le KD-tree
         result = traverseKDTree(p, normalize(p));
+    } else if (iAlgo == 2) {
+        // Algorithme hybride : raymarching uniquement sur les objets présélectionnés
+        result = Data(MAX_DIST, BACKGROUND, 0);
+        int colDistCalls = 0;
+
+        float minDistToObj = MAX_DIST;
+        vec3 closestColor = BACKGROUND;
+
+        for (int i = 0; i < nbObjects; i++) {
+            // Ne tester que les objets touchés par le raytracing initial
+            if (initialRayHits[i]) { 
+                vec4 o = colDist(p, iObjects[i]);
+                colDistCalls++;
+                if (o.a < minDistToObj) {
+                    minDistToObj = o.a;
+                    closestColor = o.rgb;
+                }
+            }
+        }
+        result.d = minDistToObj;
+        result.color = closestColor;
+        result.steps = colDistCalls;
     } else {
         // Algorithme classique
         result = Data(MAX_DIST, BACKGROUND, 0);
@@ -716,55 +856,105 @@ Data scene(vec3 p) {
 
 // Modifier la fonction march pour accumuler tous les appels à colDist
 Data march(vec3 rayOrigin, vec3 rayDirection) {
-    Data data = Data(0., BACKGROUND, 0);
-    vec3 currentPoint = rayOrigin;
-    float d = 0.;
+    Data data = Data(0., BACKGROUND, 0); // Initialize color to BACKGROUND by default
+    // vec3 currentPoint = rayOrigin; // currentPoint will be calculated inside loop
+    // float d = 0.; // Will be replaced by accumulated_d
     Data info_scene;
-    int totalColDistCalls = 0; // Compteur total d'appels à colDist
-    
-    for(int i = 0; i < MAX_STEPS; i++) {
-        currentPoint = rayOrigin + rayDirection * d;
-        info_scene = scene(currentPoint);
-        totalColDistCalls += info_scene.steps; // Accumuler les appels à colDist à chaque étape
-        d += info_scene.d;
-        
-        if(info_scene.d < EPSILON) {
-            data.d = d;
-            data.color = info_scene.color;
-            data.steps = totalColDistCalls; // Utiliser le compteur total
+    int totalColDistCalls = 0; 
+
+    bool initialRayHitsBoundingSphere[nbObjects];
+    float overallMinT = MAX_DIST;
+    float overallMaxT = 0.0; // Correctly 0.0 for max search
+    int boundingSpheresHitCount = 0;
+
+    float accumulated_d;
+    float loopMaxDist;
+
+    if (iAlgo == 2) {
+        for (int i = 0; i < nbObjects; i++) {
+            initialRayHitsBoundingSphere[i] = false;
+            vec4 boundingSphere = compute_bounding_sphere(iObjects[i]);
+            Intersections isects = raytracing_sphere(boundingSphere.rgb, boundingSphere.a, rayOrigin, rayDirection);
             
+            if (isects.count > 0) {
+                initialRayHitsBoundingSphere[i] = true;
+                boundingSpheresHitCount++;
+                for (int k = 0; k < isects.count; k++) {
+                    if (isects.t[k] > 0.0) { // Consider only intersections in front
+                        if (isects.t[k] < overallMinT) overallMinT = isects.t[k];
+                        if (isects.t[k] > overallMaxT) overallMaxT = isects.t[k];
+                    }
+                }
+            }
+        }
+
+        if (boundingSpheresHitCount == 0) {
+            data.d = MAX_DIST + 1.0; 
+            data.color = BACKGROUND; // Explicitly BACKGROUND
+            data.steps = 0;
+            return data;
+        }
+        // Start raymarching slightly before the first bounding sphere hit
+        accumulated_d = max(0.0, overallMinT - EPSILON * 10.0); 
+        // Limit raymarching to slightly after the last bounding sphere hit or MAX_DIST
+        loopMaxDist = min(overallMaxT + EPSILON * 10.0, MAX_DIST);
+        if (overallMinT > overallMaxT) { // No valid positive t values found in isects
+             data.d = MAX_DIST + 1.0; 
+            data.color = BACKGROUND;
+            data.steps = 0;
             return data;
         }
         
-        if(d > MAX_DIST) {
-            data.d = d;
-            data.steps = totalColDistCalls; // Utiliser le compteur total
-            
-            // Visualiser les plans du KD-tree si activé
-            if (iAlgo == 1 && iDisplayKDTree == 1) {
-                vec4 planes = visualizeKDPlanes(rayOrigin, rayDirection, MAX_DIST, d);
-                data.color = mix(BACKGROUND, planes.rgb, planes.a);
-            }
-            
+    } else {
+        for (int i = 0; i < nbObjects; i++) {
+            initialRayHitsBoundingSphere[i] = true; 
+        }
+        accumulated_d = 0.0;
+        loopMaxDist = MAX_DIST;
+    }
+    
+    for(int i = 0; i < MAX_STEPS; i++) {
+        vec3 currentPoint = rayOrigin + rayDirection * accumulated_d;
+        info_scene = scene(currentPoint, initialRayHitsBoundingSphere);
+        totalColDistCalls += info_scene.steps;
+        
+        if(info_scene.d < EPSILON) { // HIT
+            data.d = accumulated_d; // Distance to currentPoint which is on the surface
+            data.color = info_scene.color;
+            data.steps = totalColDistCalls;
             return data;
+        }
+        
+        // Advance ray by the SDF distance (ensure it's positive to make progress)
+        accumulated_d += max(info_scene.d, EPSILON * 0.1); 
+        
+        if(accumulated_d > loopMaxDist) {
+            break; // Exceeded allowed distance for this raymarch (overallMaxT or MAX_DIST)
         }
     }
     
-    data.d = MAX_DIST+1.;
-    data.steps = totalColDistCalls; // Utiliser le compteur total
+    // If loop finishes (MAX_STEPS or accumulated_d > loopMaxDist) without an EPSILON hit
+    data.d = MAX_DIST + 1.0; // Signal miss
+    data.color = BACKGROUND;   // Ensure background color
+    data.steps = totalColDistCalls;
     return data;
 }
 
 
 //calulate the normale of a pixel
 vec3 normal(vec3 p){
-    Data sceneData = scene(p);
+    // Pour normal, on doit tester tous les objets autour du point p,
+    // donc on passe un tableau où tout est à true.
+    bool allObjects[nbObjects];
+    for(int i=0; i < nbObjects; ++i) allObjects[i] = true;
+    
+    Data sceneData = scene(p, allObjects);
     float dP = sceneData.d;
     vec2 eps = vec2(0.01, 0.0);
     
-    float dX = scene(p + eps.xyy).d - dP; //diff of distance between p and the pts at 0.01x next
-    float dY = scene(p + eps.yxy).d - dP; //diff of distance between p and the pts at 0.01y next
-    float dZ = scene(p + eps.yyx).d - dP; //diff of distance between p and the pts at 0.01z next
+    float dX = scene(p + eps.xyy, allObjects).d - dP;
+    float dY = scene(p + eps.yxy, allObjects).d - dP;
+    float dZ = scene(p + eps.yyx, allObjects).d - dP;
     
     return normalize(vec3(dX, dY, dZ));
 }
@@ -800,11 +990,14 @@ void mainImage(out vec4 frag_Color, in vec2 fragCoord) {
     
     
     Data data_scene = march(rayOrigin, rayDirection);
-    float d = data_scene.d; // distance de l'objet le plus proche
-    vec3 col = mix(vec3(1.0), BACKGROUND, pow(uv.y + 0.5, 0.6 + mouse.y));
+    //float d = data_scene.d; // d is part of data_scene
+    vec3 col; // Declare col here
     
-    if(d < MAX_DIST) {
-        vec3 p = rayOrigin + rayDirection * d; //pts touch
+    if(data_scene.d < MAX_DIST) { // HIT
+        if(iViewPerf > 0) {
+            col = color_steps(data_scene.steps, nbObjects*MAX_STEPS); // Or some other appropriate max
+        } else {
+            vec3 p = rayOrigin + rayDirection * data_scene.d; //pts touch
         col = data_scene.color;
         vec3 nor = normal(p);
         Data data_lighting = lighting(p, nor);
@@ -813,27 +1006,23 @@ void mainImage(out vec4 frag_Color, in vec2 fragCoord) {
     
         col *= (data_lighting.color.r + amb_backg);
         col = pow(col, vec3(0.4545)); //gamma curve correction
-
-        if(iViewPerf > 0) {
-            //black and white
-            //col = color_steps(data_scene.steps+data_lighting.steps, 2*MAX_STEPS);
-            col = color_steps(data_scene.steps, nbObjects*MAX_STEPS);
         }
-    } else {
+    } else { // MISS (data_scene.d >= MAX_DIST)
         if(iViewPerf > 0) {
-            col = color_steps(1, 1);
+            col = color_steps(data_scene.steps, nbObjects*MAX_STEPS); // Or 1,1 if steps is high for misses
+        } else {
+            col = BACKGROUND; // Explicitly set to background for misses
         }
     }
 
     
-    // Visualisation des plans uniquement si l'option est activée
-    if (iDisplayKDTree == 1) {
-        // Passer la distance de l'objet à la fonction pour filtrer les plans
-        vec4 planesColor = visualizeKDPlanes(rayOrigin, rayDirection, MAX_DIST, d);
-        
+    // Visualisation des plans KD-tree si activé, et seulement si ce n'est pas un miss complet.
+    // Ou si on veut les voir même sur le fond.
+    if (iAlgo == 1 && iDisplayKDTree == 1) { // KD-Tree plane visualization specifically for iAlgo 1
+        // Pass data_scene.d to visualizeKDPlanes. If it was a miss, d will be large.
+        vec4 planesColor = visualizeKDPlanes(rayOrigin, rayDirection, MAX_DIST, data_scene.d);
         if (planesColor.a > 0.0) {
-            // Mélange plus direct pour plus de visibilité
-            col = mix(col, planesColor.rgb, planesColor.a * 0.8);
+            col = mix(col, planesColor.rgb, planesColor.a); // Adjusted mixing for better visibility
         }
     }
     
