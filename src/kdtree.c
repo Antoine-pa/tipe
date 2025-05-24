@@ -44,6 +44,61 @@ void add_node_to_kdtree_info(KDTreeInfo_t* info, KDNode_t* node) {
         fprintf(stderr, "KDTreeInfo nodes array is full\n");
     }
 }
+// Avant de retourner le KD-tree à la fin de la fonction de construction, ajouter:
+
+// Ajouter cette fonction pour afficher le KD-tree pour debug
+void debug_kdtree(KDNode_t* root, int level) {
+    if (root == NULL) return;
+    
+    // Indentation selon le niveau
+    for (int i = 0; i < level; i++) {
+        printf("  ");
+    }
+    
+    // Afficher les informations du nœud
+    if (root->split_axis == -1) {
+        // Feuille
+        printf("Leaf: Objects %d to %d\n", root->start_index, root->end_index - 1);
+    } else {
+        // Nœud interne
+        printf("Node: Axis %d, Split pos %.2f, left_idx=%d, right_idx=%d\n", 
+               root->split_axis, root->split_pos, 
+               root->left_child_index, root->right_child_index);
+        // Note: On ne peut pas faire d'appel récursif ici car on n'a que les indices
+        // Il faudrait une version qui prend KDTreeInfo_t* en paramètre
+    }
+}
+
+// Ajouter une nouvelle fonction pour debug avec accès au tableau complet
+void debug_kdtree_full(KDTreeInfo_t* tree_info, int node_index, int level) {
+    if (node_index < 0 || node_index >= tree_info->node_count) {
+        return;
+    }
+    
+    KDNode_t* node = tree_info->all_nodes[node_index];
+    
+    // Indentation selon le niveau
+    for (int i = 0; i < level; i++) {
+        printf("  ");
+    }
+    
+    // Afficher les informations du nœud
+    if (node->split_axis == -1) {
+        // Feuille
+        printf("Leaf[%d]: Objects %d to %d\n", node_index, node->start_index, node->end_index - 1);
+    } else {
+        // Nœud interne
+        printf("Node[%d]: Axis %d, Split pos %.2f\n", node_index, node->split_axis, node->split_pos);
+        
+        // Appel récursif pour les enfants
+        if (node->left_child_index >= 0) {
+            debug_kdtree_full(tree_info, node->left_child_index, level + 1);
+        }
+        if (node->right_child_index >= 0) {
+            debug_kdtree_full(tree_info, node->right_child_index, level + 1);
+        }
+    }
+}
 
 // Fonction pour construire le KD-tree récursivement
 KDNode_t* build_kdtree(Object_t** objects, int nb_objects, int depth, KDTreeInfo_t* info) {
@@ -155,29 +210,22 @@ KDNode_t* build_kdtree(Object_t** objects, int nb_objects, int depth, KDTreeInfo
     }
     
     // Construire récursivement les sous-arbres
-    KDNode_t* left_child = NULL;
-    KDNode_t* right_child = NULL;
+    int left_child_index = -1;
+    int right_child_index = -1;
     
     if (left_count > 0) {
-        left_child = build_kdtree(left_objects, left_count, depth + 1, info);
+        left_child_index = info->node_count; // Stocker l'index avant de créer l'enfant
+        build_kdtree(left_objects, left_count, depth + 1, info);
     }
     
     if (right_count > 0) {
-        right_child = build_kdtree(right_objects, right_count, depth + 1, info);
+        right_child_index = info->node_count; // Stocker l'index avant de créer l'enfant
+        build_kdtree(right_objects, right_count, depth + 1, info);
     }
     
     // Assigner les indices des enfants
-    if (left_child) {
-        node->left_child_index = info->node_count - 1; // Indice relatif
-    } else {
-        node->left_child_index = -1;
-    }
-    
-    if (right_child) {
-        node->right_child_index = info->node_count - 1; // Indice relatif
-    } else {
-        node->right_child_index = -1;
-    }
+    node->left_child_index = left_child_index;
+    node->right_child_index = right_child_index;
     
     // Stocker les informations des objets
     node->start_index = 0;
@@ -187,6 +235,12 @@ KDNode_t* build_kdtree(Object_t** objects, int nb_objects, int depth, KDTreeInfo
     free(left_objects);
     free(right_objects);
     free(overlap_objects);
+    
+    printf("\n--- KD-Tree Debug Info ---\n");
+    printf("Total nodes: %d\n", info->node_count);
+    printf("Tree structure:\n");
+    debug_kdtree_full(info, 0, 0); // Commencer par la racine (index 0)
+    printf("------------------------\n\n");
     
     return node;
 }
@@ -206,6 +260,21 @@ KDNodeGPU_t* convert_kdtree_to_gpu_format(KDTreeInfo_t* kdtree_info) {
         kdtree_data[i].right_child_index = kdtree_info->all_nodes[i]->right_child_index;
         kdtree_data[i].start_index = kdtree_info->all_nodes[i]->start_index;
         kdtree_data[i].end_index = kdtree_info->all_nodes[i]->end_index;
+    }
+    
+    printf("\n--- KD-Tree Debug Info for GPU ---\n");
+    printf("Total nodes: %d\n", kdtree_info->node_count);
+    printf("Tree structure:\n");
+    debug_kdtree_full(kdtree_info, 0, 0); // Commencer par la racine (index 0)
+    printf("------------------------\n\n");
+
+    // Pour afficher les données GPU du KD-tree
+    printf("GPU KD-tree data:\n");
+    for (int i = 0; i < kdtree_info->node_count; i++) {
+        printf("Node %d: axis=%d, pos=%.2f, left=%d, right=%d, start=%d, end=%d\n",
+               i, kdtree_data[i].split_axis, kdtree_data[i].split_pos,
+               kdtree_data[i].left_child_index, kdtree_data[i].right_child_index,
+               kdtree_data[i].start_index, kdtree_data[i].end_index);
     }
     
     return kdtree_data;

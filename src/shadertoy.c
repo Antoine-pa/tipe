@@ -16,12 +16,6 @@
 #include <GL/glu.h>  // Pour gluSphere, gluCylinder, etc.
 #include "objects.h"  // Inclure le nouveau fichier objects.h
 
-#ifdef DEBUG_KD_TREE
-#define KD_DEBUG(fmt, ...) printf(fmt, ##__VA_ARGS__)
-#else
-#define KD_DEBUG(fmt, ...) /* rien */
-#endif
-
 static double geometry[4] = { 0, };
 static double mouse[4] = { 0, };
 
@@ -33,14 +27,6 @@ int output;
 int algo;
 int display_kdtree_shader;
 static GLuint kdtree_ssbo = 0;
-
-void print_object(Object_t o) {
-  printf("type : %d\ncolor : %f, %f, %f\n", o.id, o.color[0], o.color[1], o.color[2]);
-  printf("position : %f, %f, %f\n", o.pos[0], o.pos[1], o.pos[2]);
-  printf("rotation : %f, %f, %f\n", o.rot[0], o.rot[1], o.rot[2]);
-  printf("size : %f, %f, %f\n", o.size[0], o.size[1], o.size[2]);
-  printf("radius : %f\nthickness : %f\n=======\n", o.radius, o.thickness);
-}
 
 Scene_t* init_scene() {
     int nb_objects = 5;
@@ -61,15 +47,78 @@ Scene_t* init_scene() {
           obj_ptrs[i] = &objs[i];
       }
       
-      // Initialiser l'info du KD-tree
-      scene->kdtree_info = init_kdtree_info(100);
+      // Initialiser l'info du KD-tree - Allouer 3*nb_objects nœuds (heuristique)
+      int max_nodes = nb_objects * 3;
+      scene->kdtree_info = init_kdtree_info(max_nodes);
       scene->kdtree_info->root = build_kdtree(obj_ptrs, nb_objects, 0, scene->kdtree_info);
       
-      // Afficher le KD-tree
-      display_kdtree(scene->kdtree_info);
-
       free(obj_ptrs);
     }
+    return scene;
+}
+
+// Nouvelle fonction pour créer 48 sphères rouges
+Scene_t* init_scene2() {
+    int nb_objects = 48;
+    Scene_t* scene = malloc(sizeof(Scene_t));
+    Object_t* objs = malloc(sizeof(Object_t) * nb_objects);
+    
+    // Paramètres pour la grille de sphères
+    int width = 4;   // Largeur (X)
+    int height = 3;  // Hauteur (Y)
+    int depth = 4;   // Profondeur (Z)
+    
+    float radius = 0.08; // Rayon des sphères (assez petit)
+    float spacing = 6 * radius; // Espacement égal à deux diamètres (un diamètre d'espace entre sphères)
+    float start_x = -1.5 * spacing; // Position de départ en X
+    float start_y = -1.0 * spacing; // Position de départ en Y
+    float start_z = -1.5 * spacing; // Position de départ en Z
+    
+    // Créer 48 sphères rouges disposées en grille précise 4x3x4
+    int id = 0;
+    for (int y = 0; y < height; y++) {
+        for (int z = 0; z < depth; z++) {
+            for (int x = 0; x < width; x++) {
+                float pos_x = start_x + x * spacing;
+                float pos_y = start_y + y * spacing;
+                float pos_z = start_z + z * spacing;
+                
+                // Créer une sphère rouge
+                objs[id] = init_object(
+                    0,                  // Type: sphère
+                    1.0, 0.0, 0.0,      // Couleur: rouge
+                    pos_x, pos_y, pos_z, // Position
+                    0.0, 0.0, 0.0,      // Rotation (non applicable pour sphère)
+                    0.0, 0.0, 0.0,      // Size (non applicable pour sphère)
+                    radius,             // Rayon
+                    0.0,                // Thickness (non applicable pour sphère)
+                    id                  // ID
+                );
+                
+                id++;
+            }
+        }
+    }
+    
+    scene->obj = objs;
+    scene->nb = nb_objects;
+    
+    if(algo == 1) {
+        // Construire le KD-tree
+        Object_t** obj_ptrs = malloc(sizeof(Object_t*) * nb_objects);
+        for (int i = 0; i < nb_objects; i++) {
+            obj_ptrs[i] = &objs[i];
+        }
+        
+        // Pour un KD-tree équilibré, le nombre de nœuds internes est environ 2*nb_objects-1
+        // Ajoutons une marge de sécurité pour les arbres déséquilibrés
+        int max_nodes = nb_objects * 3;
+        scene->kdtree_info = init_kdtree_info(max_nodes);
+        scene->kdtree_info->root = build_kdtree(obj_ptrs, nb_objects, 0, scene->kdtree_info);
+        
+        free(obj_ptrs);
+    }
+    
     return scene;
 }
 
@@ -131,7 +180,6 @@ void display(GLFWwindow* window) {
   GLint useAlgoLoc = glGetUniformLocation(prog, "iAlgo");
   if (useAlgoLoc >= 0) {
     glUniform1i(useAlgoLoc, algo);
-    KD_DEBUG("iAlgo uniform transmis: %d\n", algo);
   } else {
     printf("ERREUR: L'uniform iAlgo n'a pas été trouvé dans le shader!\n");
   }
@@ -139,7 +187,6 @@ void display(GLFWwindow* window) {
   GLint displayKDTreeLoc = glGetUniformLocation(prog, "iDisplayKDTree");
   if (displayKDTreeLoc >= 0) {
     glUniform1i(displayKDTreeLoc, display_kdtree_shader);
-    KD_DEBUG("iDisplayKDTree uniform transmis: %d\n", display_kdtree_shader);
   } else {
     printf("ERREUR: L'uniform iDisplayKDTree n'a pas été trouvé dans le shader!\n");
   }
@@ -250,7 +297,6 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 
 void cursor_position_callback(GLFWwindow* window, double xpos, double ypos) {
     int x0, y0, height;
-    char msg[1000];
 
     glfwGetWindowPos(window, &x0, &y0);
     glfwGetWindowSize(window, NULL, &height);
@@ -262,8 +308,6 @@ void cursor_position_callback(GLFWwindow* window, double xpos, double ypos) {
         mouse[0] = xpos;
         mouse[1] = height - ypos;
     }
-
-    snprintf(msg, sizeof(msg), "iMouse:%.0f,%.0f,%.0f,%.0f", mouse[0], mouse[1], mouse[2], mouse[3]);
 }
 
 void keyboard_handler(GLFWwindow* window, int key, int scancode, int action, int mods) {
@@ -386,8 +430,7 @@ void glSendData() {
     if (algo == 1) {
       KDNodeGPU_t* kdtree_data = convert_kdtree_to_gpu_format(scene->kdtree_info);
       // Envoyer les données au shader
-      int num_nodes = 3;
-      send_kdtree_to_shader(kdtree_data, num_nodes);
+      send_kdtree_to_shader(kdtree_data, scene->kdtree_info->node_count);
       free(kdtree_data);
     }
 
@@ -449,7 +492,9 @@ int main (int argc, char* argv[]) {
   
   GLFWwindow* window = init_glfw_window();
   init_glew();
+  
   scene = init_scene();
+  //scene = init_scene2();
   
   int buffer_size = 100;
   char directory[buffer_size];

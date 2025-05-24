@@ -177,7 +177,7 @@ vec4 colDist(vec3 p, Object obj) {
 }
 
 vec3 color_steps(int nb_steps, int max_steps) {
-    return vec3(float(nb_steps)/(float(max_steps)));
+    return vec3(1.-float(nb_steps)/(float(max_steps)));
 }
 
 // Fonction pour calculer une sphère englobante d'un objet
@@ -1009,7 +1009,11 @@ void mainImage(out vec4 frag_Color, in vec2 fragCoord) {
         }
     } else { // MISS (data_scene.d >= MAX_DIST)
         if(iViewPerf > 0) {
-            col = color_steps(data_scene.steps, nbObjects*MAX_STEPS); // Or 1,1 if steps is high for misses
+            if (iAlgo == 2) { // For hybrid algorithm, show steps even on miss
+                col = color_steps(data_scene.steps, nbObjects*MAX_STEPS);
+            } else { // For classical raymarching or others, black on miss
+                col = vec3(0.0);
+            }
         } else {
             col = BACKGROUND; // Explicitly set to background for misses
         }
