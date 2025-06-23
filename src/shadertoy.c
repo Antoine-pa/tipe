@@ -25,7 +25,7 @@ static Scene_t* scene = NULL;
 int view_perf;
 int output;
 int algo;
-int display_kdtree_shader;
+int display_wrapper;
 static GLuint kdtree_ssbo = 0;
 
 Scene_t* init_scene() {
@@ -57,13 +57,11 @@ Scene_t* init_scene() {
     return scene;
 }
 
-// Nouvelle fonction pour créer 48 sphères rouges
 Scene_t* init_scene2() {
     int nb_objects = 48;
     Scene_t* scene = malloc(sizeof(Scene_t));
     Object_t* objs = malloc(sizeof(Object_t) * nb_objects);
     
-    // Paramètres pour la grille de sphères
     int width = 4;   // Largeur (X)
     int height = 3;  // Hauteur (Y)
     int depth = 4;   // Profondeur (Z)
@@ -83,18 +81,7 @@ Scene_t* init_scene2() {
                 float pos_y = start_y + y * spacing;
                 float pos_z = start_z + z * spacing;
                 
-                // Créer une sphère rouge
-                objs[id] = init_object(
-                    0,                  // Type: sphère
-                    1.0, 0.0, 0.0,      // Couleur: rouge
-                    pos_x, pos_y, pos_z, // Position
-                    0.0, 0.0, 0.0,      // Rotation (non applicable pour sphère)
-                    0.0, 0.0, 0.0,      // Size (non applicable pour sphère)
-                    radius,             // Rayon
-                    0.0,                // Thickness (non applicable pour sphère)
-                    id                  // ID
-                );
-                
+                objs[id] = init_object(0, 1.0, 0.0, 0.0, pos_x, pos_y, pos_z, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, radius, 0.0, id);
                 id++;
             }
         }
@@ -109,9 +96,6 @@ Scene_t* init_scene2() {
         for (int i = 0; i < nb_objects; i++) {
             obj_ptrs[i] = &objs[i];
         }
-        
-        // Pour un KD-tree équilibré, le nombre de nœuds internes est environ 2*nb_objects-1
-        // Ajoutons une marge de sécurité pour les arbres déséquilibrés
         int max_nodes = nb_objects * 3;
         scene->kdtree_info = init_kdtree_info(max_nodes);
         scene->kdtree_info->root = build_kdtree(obj_ptrs, nb_objects, 0, scene->kdtree_info);
@@ -184,17 +168,12 @@ void display(GLFWwindow* window) {
     printf("ERREUR: L'uniform iAlgo n'a pas été trouvé dans le shader!\n");
   }
 
-  GLint displayKDTreeLoc = glGetUniformLocation(prog, "iDisplayKDTree");
-  if (displayKDTreeLoc >= 0) {
-    glUniform1i(displayKDTreeLoc, display_kdtree_shader);
+  GLint displaWrapperLoc = glGetUniformLocation(prog, "iDisplayWrapper");
+  if (displaWrapperLoc >= 0) {
+    glUniform1i(displaWrapperLoc, display_wrapper);
   } else {
     printf("ERREUR: L'uniform iDisplayKDTree n'a pas été trouvé dans le shader!\n");
   }
-
-
-  //uindex = glGetUniformLocation (prog, "iMouse");
-  //if (uindex >= 0)
-    //glUniform4f (uindex, mouse[0],  mouse[1], mouse[2], mouse[3]);
 }
 
 GLint compile_shader (const GLenum  shader_type,
@@ -326,7 +305,6 @@ void keyboard_handler(GLFWwindow* window, int key, int scancode, int action, int
 
 void init_glew (void) {
   GLenum status;
-  
   status = glewInit ();
 
   if (status != GLEW_OK)
@@ -354,14 +332,12 @@ char * load_file(char *filename) {
   FILE *f;
   int size;
   char *data;
-
   f = fopen (filename, "rb");
   if (f == NULL)
     {
       perror ("error opening file");
       return NULL;
     }
-
   fseek (f, 0, SEEK_END);
   size = ftell (f);
   fseek (f, 0, SEEK_SET);
@@ -416,12 +392,10 @@ void load_scene() {
   glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 }
 
-
 void glSendData() {
     if (scene_data_ssbo == 0) {  
         glGenBuffers(1, &scene_data_ssbo);
     }      
-
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, scene_data_ssbo);
     glBufferData(GL_SHADER_STORAGE_BUFFER, scene->nb * sizeof(Object_t), NULL, GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, scene_data_ssbo);
@@ -483,24 +457,21 @@ int main (int argc, char* argv[]) {
     view_perf = atoi(argv[1]);
     output = atoi(argv[2]);
     algo = atoi(argv[3]);
-    display_kdtree_shader = atoi(argv[4]);
+    display_wrapper = atoi(argv[4]);
   }
   else {
-    printf("erreur :\nLa commande doit etre de la forme :\n./shadertoy.bin [n1] [n2] [n3] [n4]\n avec n1, n2, n4 = 0 ou 1, n3 = 0, 1 ou 2. n1 signifiant la vue des performances, n2 si on doit enregistrer une image, n3 l'algorithme utilisé et n4 si on affiche les enveloppes.\n");
+    printf("erreur :\nLa commande doit etre de la forme :\n./shadertoy.bin [n1] [n2] [n3] [n4]\n avec n1, n2, n4 = 0 ou 1, n3 = 0, 1 ou 2.\n");
+    printf("n1 signifiant la vue des performances, n2 si on doit enregistrer une image, n3 l'algorithme utilisé et n4 si on affiche les enveloppes.\n");
     return 0;
   }
-  
   GLFWwindow* window = init_glfw_window();
   init_glew();
-  
-  scene = init_scene();
-  //scene = init_scene2();
+  //scene = init_scene();
+  scene = init_scene2();
   
   int buffer_size = 100;
   char directory[buffer_size];
   getcwd(directory, buffer_size);
-
-  // Construire le chemin complet du fichier
   char vertex_path[buffer_size + 50];
   snprintf(vertex_path, sizeof(vertex_path), "%s/src/vertex.glsl", directory);
   char fragment_path[buffer_size + 50];
@@ -513,9 +484,7 @@ int main (int argc, char* argv[]) {
     fprintf(stderr, "Failed to load shader code\n");
     return -1;
   }
-
   prog = link_program((const GLchar*)vert_code, (const GLchar*)frag_code);
-
   free(vert_code);
   free(frag_code);
 

@@ -6,7 +6,6 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-// Définir une macro de debug proprement
 #ifdef DEBUG_KD_TREE
 #define KD_DEBUG(fmt, ...) printf(fmt, ##__VA_ARGS__)
 #else
@@ -44,28 +43,21 @@ void add_node_to_kdtree_info(KDTreeInfo_t* info, KDNode_t* node) {
         fprintf(stderr, "KDTreeInfo nodes array is full\n");
     }
 }
-// Avant de retourner le KD-tree à la fin de la fonction de construction, ajouter:
 
 // Ajouter cette fonction pour afficher le KD-tree pour debug
 void debug_kdtree(KDNode_t* root, int level) {
     if (root == NULL) return;
     
-    // Indentation selon le niveau
     for (int i = 0; i < level; i++) {
         printf("  ");
     }
-    
     // Afficher les informations du nœud
     if (root->split_axis == -1) {
-        // Feuille
         printf("Leaf: Objects %d to %d\n", root->start_index, root->end_index - 1);
     } else {
-        // Nœud interne
         printf("Node: Axis %d, Split pos %.2f, left_idx=%d, right_idx=%d\n", 
                root->split_axis, root->split_pos, 
                root->left_child_index, root->right_child_index);
-        // Note: On ne peut pas faire d'appel récursif ici car on n'a que les indices
-        // Il faudrait une version qui prend KDTreeInfo_t* en paramètre
     }
 }
 
@@ -74,15 +66,10 @@ void debug_kdtree_full(KDTreeInfo_t* tree_info, int node_index, int level) {
     if (node_index < 0 || node_index >= tree_info->node_count) {
         return;
     }
-    
     KDNode_t* node = tree_info->all_nodes[node_index];
-    
-    // Indentation selon le niveau
     for (int i = 0; i < level; i++) {
         printf("  ");
     }
-    
-    // Afficher les informations du nœud
     if (node->split_axis == -1) {
         // Feuille
         printf("Leaf[%d]: Objects %d to %d\n", node_index, node->start_index, node->end_index - 1);
@@ -146,12 +133,8 @@ KDNode_t* build_kdtree(Object_t** objects, int nb_objects, int depth, KDTreeInfo
     for (int i = 0; i < nb_objects; i++) {
         bboxes[i] = compute_object_bbox(objects[i]);
     }
-    
-    // Déterminer l'axe de séparation (alterné en fonction de la profondeur)
     int current_axis = depth % 3;
     node->split_axis = current_axis;
-    
-    // Calculer la position médiane sur cet axe
     float min_val = INFINITY;
     float max_val = -INFINITY;
     
@@ -186,8 +169,6 @@ KDNode_t* build_kdtree(Object_t** objects, int nb_objects, int depth, KDTreeInfo
             overlap_objects[overlap_count++] = objects[i];
         }
     }
-    
-    // Si la distribution est très déséquilibrée, ajuster
     if (left_count == 0 || right_count == 0) {
         // Répartir les objets de chevauchement
         for (int i = 0; i < overlap_count; i++) {
@@ -199,8 +180,6 @@ KDNode_t* build_kdtree(Object_t** objects, int nb_objects, int depth, KDTreeInfo
         }
         overlap_count = 0;
     }
-    
-    // Libérer les boîtes englobantes
     free(bboxes);
     
     // Traiter les objets chevauchants en les ajoutant aux deux sous-arbres
@@ -308,38 +287,28 @@ void free_kdtree_info(KDTreeInfo_t* info) {
 
 // Fonction pour libérer un nœud du KD-tree (à ne pas utiliser directement)
 void free_kdtree(KDNode_t* nodes, int root_index) {
-    // Cette fonction n'est pas utilisée car free_kdtree_info libère tous les nœuds
     (void)nodes;
     (void)root_index;
 }
 
 
-// Assurez-vous que print_kdtree est implémentée
 void print_kdtree(KDTreeInfo_t* tree_info, int node_index, int depth, Scene_t* scene) {
     if (node_index < 0 || node_index >= tree_info->node_count) {
         return;
     }
     
     KDNode_t* node = tree_info->all_nodes[node_index];
-    
-    // Indentation pour montrer la hiérarchie
     for (int i = 0; i < depth; i++) {
         printf("  ");
     }
-    
     if (node->split_axis >= 0) {
-        // Nœud interne
         printf("Nœud [%d]: Axe %d, Position %.2f\n", 
                node_index, node->split_axis, node->split_pos);
         
-        // Afficher les enfants
         print_kdtree(tree_info, node_index + node->left_child_index, depth + 1, scene);
         print_kdtree(tree_info, node_index + node->right_child_index, depth + 1, scene);
     } else {
-        // Feuille
         printf("Feuille [%d]: %d objets\n", node_index, node->end_index - node->start_index);
-        
-        // Si la scène est disponible, afficher les informations sur les objets
         if (scene) {
             int start = node->start_index;
             int end = node->end_index;
@@ -363,17 +332,12 @@ void print_kdtree(KDTreeInfo_t* tree_info, int node_index, int depth, Scene_t* s
 // Fonction pour calculer la boîte englobante d'un objet en fonction de son type
 BoundingBox_t calculate_bounding_box(Object_t* obj) {
     BoundingBox_t bbox;
-    
-    // Initialiser les valeurs min/max avec la position de l'objet
     for (int i = 0; i < 3; i++) {
         bbox.min[i] = obj->pos[i];
         bbox.max[i] = obj->pos[i];
     }
-    
-    // Ajuster en fonction du type d'objet
     switch (obj->type) {
         case 0: // Sphère
-            // Étendre la boîte de "radius" dans toutes les directions
             for (int i = 0; i < 3; i++) {
                 bbox.min[i] -= obj->radius;
                 bbox.max[i] += obj->radius;
@@ -397,7 +361,6 @@ BoundingBox_t calculate_bounding_box(Object_t* obj) {
                     bbox.min[1] -= obj->thickness;
                     bbox.max[1] += obj->thickness;
                 } else {
-                    // Pour une rotation arbitraire, utiliser une approche conservatrice
                     for (int i = 0; i < 3; i++) {
                         bbox.min[i] -= total_radius;
                         bbox.max[i] += total_radius;
@@ -408,11 +371,8 @@ BoundingBox_t calculate_bounding_box(Object_t* obj) {
             
         case 2: // Cylindre
             {
-                // Extraire la hauteur et le rayon du cylindre
                 float height = obj->size[0];
                 float radius = obj->size[1];
-                
-                // Si le cylindre est aligné avec l'axe Y par défaut
                 if (fabs(obj->rot[0]) < 0.001 && fabs(obj->rot[2]) < 0.001) {
                     // Extension en Y basée sur la hauteur
                     bbox.min[1] -= height / 2.0f;
@@ -424,7 +384,6 @@ BoundingBox_t calculate_bounding_box(Object_t* obj) {
                     bbox.max[0] += radius;
                     bbox.max[2] += radius;
                 } else {
-                    // Pour une rotation arbitraire, utiliser une approche conservatrice
                     float max_extent = fmax(height / 2.0f, radius);
                     for (int i = 0; i < 3; i++) {
                         bbox.min[i] -= max_extent;
@@ -436,12 +395,10 @@ BoundingBox_t calculate_bounding_box(Object_t* obj) {
             
         case 3: // Pavé droit
             {
-                // Extraire les dimensions du pavé
                 float x_size = obj->size[0];
                 float y_size = obj->size[1];
                 float z_size = obj->size[2];
                 
-                // Si le pavé est aligné avec les axes (pas de rotation)
                 if (fabs(obj->rot[0]) < 0.001 && fabs(obj->rot[1]) < 0.001 && fabs(obj->rot[2]) < 0.001) {
                     bbox.min[0] -= x_size / 2.0f;
                     bbox.min[1] -= y_size / 2.0f;
@@ -450,15 +407,12 @@ BoundingBox_t calculate_bounding_box(Object_t* obj) {
                     bbox.max[1] += y_size / 2.0f;
                     bbox.max[2] += z_size / 2.0f;
                 } else {
-                    // Pour une rotation arbitraire, utiliser une approche conservatrice
                     float max_extent = sqrt(x_size*x_size + y_size*y_size + z_size*z_size) / 2.0f;
                     for (int i = 0; i < 3; i++) {
                         bbox.min[i] -= max_extent;
                         bbox.max[i] += max_extent;
                     }
                 }
-                
-                // Ajouter le facteur de lissage/arrondi
                 if (obj->thickness > 0) {
                     for (int i = 0; i < 3; i++) {
                         bbox.min[i] -= obj->thickness;
@@ -470,19 +424,12 @@ BoundingBox_t calculate_bounding_box(Object_t* obj) {
             
         case 4: // Plan infini
             {
-                // Pour un plan, utiliser une boîte très grande dans la direction du plan
-                // et fine dans la direction de la normale
-                
-                // Normaliser le vecteur normal
                 float norm = sqrt(obj->rot[0]*obj->rot[0] + obj->rot[1]*obj->rot[1] + obj->rot[2]*obj->rot[2]);
                 float nx = obj->rot[0] / norm;
                 float ny = obj->rot[1] / norm;
                 float nz = obj->rot[2] / norm;
+                float large_value = 1000.0f;
                 
-                // Définir une grande valeur pour l'extension du plan
-                float large_value = 1000.0f; // Ajuster selon vos besoins
-                
-                // Étendre légèrement dans la direction de la normale
                 float small_value = 0.01f;
                 
                 for (int i = 0; i < 3; i++) {

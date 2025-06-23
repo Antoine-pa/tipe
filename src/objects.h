@@ -22,7 +22,7 @@ typedef struct {
     float max[3];  // Coordonnées maximales (x, y, z)
 } BoundingBox_t;
 
-// Déclaration anticipée de KDTreeInfo_t pour pouvoir l'utiliser dans Scene_t
+
 typedef struct KDTreeInfo_s KDTreeInfo_t;
 
 // Structure pour stocker la scène
@@ -37,10 +37,9 @@ Object_t init_object(int type, float r, float g, float b, float px, float py, fl
                     float rx, float ry, float rz, float sx, float sy, float sz, 
                     float radius, float thickness, int id);
 
-// Fonction pour calculer la boîte englobante d'un objet
+
 BoundingBox_t compute_object_bbox(Object_t* obj);
 
-// Fonction pour obtenir le nom du type d'objet
 const char* get_object_type_name(int type);
 
 #endif // OBJECTS_H 

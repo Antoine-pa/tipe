@@ -7,7 +7,6 @@
 #include <math.h>
 #include "objects.h"  // Inclure le nouveau fichier objects.h
 
-
 // Structure pour les nœuds du KD-tree
 typedef struct {
     float split_pos;
@@ -36,7 +35,6 @@ typedef struct KDTreeInfo_s {
     int max_nodes;
 } KDTreeInfo_t;
 
-// Fonctions d'initialisation et de gestion du KD-tree
 KDTreeInfo_t* init_kdtree_info(int max_nodes);
 void add_node_to_kdtree_info(KDTreeInfo_t* info, KDNode_t* node);
 void free_kdtree_info(KDTreeInfo_t* info);
@@ -46,13 +44,9 @@ void free_kdtree(KDNode_t* nodes, int root_index);
 void display_kdtree(KDTreeInfo_t* kdtree_info);
 void print_kdtree(KDTreeInfo_t* tree_info, int node_index, int depth, Scene_t* scene);
 
-// Fonction récursive pour dessiner un nœud du KD-tree et ses enfants
 void render_kdtree_node(KDTreeInfo_t* tree_info, int node_index, float min[3], float max[3]);
 
-// Fonction de conversion pour l'envoi au GPU
 KDNodeGPU_t* convert_kdtree_to_gpu_format(KDTreeInfo_t* kdtree_info);
-
-// Nouvelles fonctions déplacées de shadertoy.c
 BoundingBox_t calculate_bounding_box(Object_t* obj);
 void print_object_details(Object_t* obj);
 

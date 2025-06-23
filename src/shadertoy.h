@@ -5,7 +5,7 @@
 #include <GLFW/glfw3.h>
 #include "objects.h"
 
-// Déclarations des variables globales
+
 extern double geometry[4];
 extern uint64_t render_start;
 extern float mouse[4];
@@ -29,7 +29,7 @@ GLuint setup_scene_data_buffer(Scene_t* scene);
 void update_scene_data_buffer(Scene_t* scene);
 void cleanup_scene();
 
-// Point d'entrée du programme
+
 int main(int argc, char *argv[]);
 
 #endif // SHADERTOY_H 
